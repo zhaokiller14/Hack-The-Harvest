@@ -95,11 +95,24 @@ def _run_inference_sync(img: np.ndarray) -> np.ndarray:
         return (torch.sigmoid(_model(x)) > 0.5).cpu().numpy().squeeze().astype(np.uint8)
 
 
-def _vectorize_mask_sync(mask: np.ndarray, polygon_geojson: dict[str, Any]) -> list[dict[str, Any]]:
+_NDVI_MIN = 0.17    # olive groves in May-June: typically 0.18-0.45
+_NDWI_MAX = -0.05   # rainfed olives: -0.07 to -0.13; urban parks/irrigated: > -0.05
+_MIN_PX = 100       # minimum contour area in pixels (~0.1 ha at 10m resolution)
+
+
+def _vectorize_mask_sync(mask: np.ndarray, img: np.ndarray, polygon_geojson: dict[str, Any]) -> list[dict[str, Any]]:
     try:
         import cv2
         import shapely.geometry as sg
         from shapely.geometry import mapping
+
+        # bands: B2=0, B3=1, B4=2, B8=3, B11=4
+        # bands: B2=0, B3=1, B4=2, B8=3, B11=4
+        b4  = img[2].astype(np.float32)
+        b8  = img[3].astype(np.float32)
+        b11 = img[4].astype(np.float32)
+        ndvi = (b8  - b4)  / (b8  + b4  + 1e-6)
+        ndwi = (b8  - b11) / (b8  + b11 + 1e-6)
 
         coords = polygon_geojson["coordinates"][0]
         lats = [c[1] for c in coords]
@@ -116,8 +129,24 @@ def _vectorize_mask_sync(mask: np.ndarray, polygon_geojson: dict[str, Any]) -> l
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         features = []
         for cnt in contours:
-            if cv2.contourArea(cnt) < 50:
+            if cv2.contourArea(cnt) < _MIN_PX:
                 continue
+
+            # Spectral sanity check: olive groves are rainfed with moderate NDVI
+            # and low NDWI (dry canopy). Urban parks/crops fail one of these.
+            cnt_mask = np.zeros_like(mask)
+            cv2.drawContours(cnt_mask, [cnt], -1, 1, thickness=-1)
+            px = cnt_mask > 0
+            mean_ndvi = float(ndvi[px].mean()) if px.any() else 0.0
+            mean_ndwi = float(ndwi[px].mean()) if px.any() else 0.0
+            print(f"[segmentation] Contour: NDVI={mean_ndvi:.3f} NDWI={mean_ndwi:.3f}")
+            if mean_ndvi < _NDVI_MIN:
+                print(f"[segmentation] Rejected: NDVI={mean_ndvi:.3f} < {_NDVI_MIN}")
+                continue
+            if mean_ndwi > _NDWI_MAX:
+                print(f"[segmentation] Rejected: NDWI={mean_ndwi:.3f} > {_NDWI_MAX} (not rainfed olive)")
+                continue
+
             pts = cnt.squeeze()
             if pts.ndim == 1:
                 pts = pts[np.newaxis, :]
@@ -158,4 +187,4 @@ async def segment_polygon(polygon_geojson: dict[str, Any]) -> list[dict[str, Any
     if img is None:
         return []
     mask = await loop.run_in_executor(None, partial(_run_inference_sync, img))
-    return await loop.run_in_executor(None, partial(_vectorize_mask_sync, mask, polygon_geojson))
+    return await loop.run_in_executor(None, partial(_vectorize_mask_sync, mask, img, polygon_geojson))
