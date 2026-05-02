@@ -36,6 +36,7 @@ COPY --from=builder /install /usr/local
 COPY app/       ./app/
 COPY frontend/  ./frontend/
 COPY models/    ./models/
+COPY data/parcels_labeled.geojson ./data/parcels_labeled.geojson
 
 # Non-root user for security
 RUN useradd -m -u 1000 ardhi && chown -R ardhi:ardhi /app

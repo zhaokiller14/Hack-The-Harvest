@@ -8,7 +8,11 @@ __pycache__/
 *.egg-info/
 
 # Data & notebooks (not needed at runtime)
-data/
+data/ndvi_history
+data/features.csv
+data/feature_cache.json
+data/TomateProduction
+data/Oliviers
 scripts/
 docs/
 *.ipynb
