@@ -2,7 +2,7 @@
 Train MCDropoutMLP on TomateProduction data and save mlp_model.pt
 with real feature column names.
 
-Pipeline mirrors notebook.ipynb:
+Pipeline mirrors notebooks/task-2/track2_rendement.ipynb:
   - Merge dev + hold (243 parcels)
   - Drop 14 near-constant features (>80% same value) → ~187 features
   - Log-transform target (best model per Section 10)
@@ -29,8 +29,9 @@ from pathlib import Path
 from app.services.mlp_model import MCDropoutMLP
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-DATA_DIR = Path("/home/user/Downloads/TomateProduction")
-OUT_PATH = Path("mlp_model.pt")
+_ROOT    = Path(__file__).resolve().parent.parent
+DATA_DIR = _ROOT / "TomateProduction"
+OUT_PATH = _ROOT / "mlp_model.pt"
 
 TARGET = "rendement_tha"
 META   = ["polygon_id", "polygon_name", "kfold"]

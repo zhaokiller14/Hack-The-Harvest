@@ -47,7 +47,11 @@ async def predire_rendement(req: RendementRequest) -> RendementResponse:
         # Fetch all data sources in parallel
         import asyncio
         bands, weather, soil = await asyncio.gather(
-            fetch_sentinel2(req.parcelle.polygone, req.date_prediction),
+            fetch_sentinel2(
+                polygone=req.parcelle.polygone,
+                date_prediction=req.date_prediction,
+                date_plantation=req.parcelle.date_plantation,
+            ),
             fetch_weather(lat, lon, req.date_prediction,
                           date_plantation=req.parcelle.date_plantation),
             fetch_soil(lat, lon),
