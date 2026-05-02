@@ -36,3 +36,5 @@ models/unet_history.json
 
 # --- Logs ---
 *.log
+/venv
+.claude

@@ -1,0 +1,37 @@
+{
+  "feature_cols": [
+    "doy_sin",
+    "doy_cos",
+    "rainfall_21d",
+    "et0_21d",
+    "gdd_21d",
+    "heat_stress_days",
+    "area_ha_log"
+  ],
+  "systems": {
+    "extensif": {
+      "system_residual_std": 0.018177364369172735,
+      "system_ndvi_mean": 0.3548595039018952,
+      "system_ndvi_std": 0.06767056826936518,
+      "mae_test": 0.014281646514911407,
+      "r2_test": 0.9300731706219558,
+      "n_samples": 3588
+    },
+    "intensif": {
+      "system_residual_std": 0.01407946438332418,
+      "system_ndvi_mean": 0.4955591469428008,
+      "system_ndvi_std": 0.05045584645002271,
+      "mae_test": 0.01132019009269046,
+      "r2_test": 0.921058807451864,
+      "n_samples": 4056
+    },
+    "hyper_intensif": {
+      "system_residual_std": 0.010998969198878734,
+      "system_ndvi_mean": 0.5975546474358975,
+      "system_ndvi_std": 0.035558428049119614,
+      "mae_test": 0.008755282340169318,
+      "r2_test": 0.8979045397982675,
+      "n_samples": 1248
+    }
+  }
+}
