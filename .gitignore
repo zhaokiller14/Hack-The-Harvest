@@ -21,6 +21,6 @@ Thumbs.db
 # --- Jupyter ---
 .ipynb_checkpoints/
 *.ipynb
-
 /venv
 .claude
+.ipynb_checkpoints
