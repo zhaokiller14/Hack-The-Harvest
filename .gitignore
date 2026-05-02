@@ -1,2 +1,23 @@
-.venv
-__pycache__
+# --- Secrets ---
+.env
+
+# --- Python ---
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# --- IDE ---
+.idea/
+.vscode/
+*.swp
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb

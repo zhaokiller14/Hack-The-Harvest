@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hack The Harvest — Cartographie des Oliveraies</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      height: 100vh;
+      background: #1a1a2e;
+      color: #eee;
+    }
+
+    #map { flex: 1; }
+
+    #sidebar {
+      width: 340px;
+      display: flex;
+      flex-direction: column;
+      background: #16213e;
+      border-left: 2px solid #0f3460;
+      overflow-y: auto;
+    }
+
+    #sidebar header {
+      padding: 18px 16px 12px;
+      background: #0f3460;
+    }
+
+    #sidebar header h1 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #e94560;
+    }
+
+    #sidebar header p {
+      font-size: 0.78rem;
+      color: #aaa;
+      margin-top: 4px;
+    }
+
+    #controls {
+      padding: 14px 16px;
+      border-bottom: 1px solid #0f3460;
+    }
+
+    #controls p {
+      font-size: 0.8rem;
+      color: #aaa;
+      margin-bottom: 10px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: opacity 0.2s;
+      margin-bottom: 8px;
+    }
+
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    #btn-analyze { background: #e94560; color: #fff; }
+    #btn-clear { background: #0f3460; color: #ccc; }
+    #btn-download { background: #1a6b3c; color: #fff; display: none; }
+
+    #spinner {
+      display: none;
+      text-align: center;
+      padding: 12px;
+      color: #aaa;
+      font-size: 0.82rem;
+    }
+
+    #stats {
+      padding: 14px 16px;
+      border-bottom: 1px solid #0f3460;
+      display: none;
+    }
+
+    #stats h2, #oliveraies-list h2 {
+      font-size: 0.85rem;
+      color: #e94560;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid #0f3460;
+      font-size: 0.82rem;
+    }
+
+    .stat-row:last-child { border-bottom: none; }
+    .stat-label { color: #aaa; }
+    .stat-value { font-weight: 700; color: #eee; }
+
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+
+    .badge-ext { background: #2d5a27; color: #7dff6b; }
+    .badge-int { background: #5a4a00; color: #ffd700; }
+
+    #oliveraies-list { padding: 14px 16px; }
+
+    .parcel-card {
+      background: #0f3460;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      font-size: 0.78rem;
+    }
+
+    .parcel-card .systeme { font-weight: 700; margin-bottom: 4px; }
+    .parcel-card .details { color: #aaa; }
+
+    #error-msg {
+      padding: 12px 16px;
+      color: #e94560;
+      font-size: 0.8rem;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="sidebar">
+  <header>
+    <h1>Cartographie Oliveraies</h1>
+    <p>Dessinez un polygone sur la carte pour détecter et classifier les oliveraies.</p>
+  </header>
+
+  <div id="controls">
+    <p>Utilisez l'outil polygone (barre gauche) pour délimiter une zone.</p>
+    <button id="btn-analyze" disabled>Analyser cette zone</button>
+    <button id="btn-clear">Effacer</button>
+    <button id="btn-download">Telecharger GeoJSON</button>
+  </div>
+
+  <div id="spinner">Analyse en cours...</div>
+  <div id="error-msg"></div>
+
+  <div id="stats">
+    <h2>Resultats</h2>
+    <div class="stat-row">
+      <span class="stat-label">Oliveraies detectees</span>
+      <span class="stat-value" id="s-total">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Surface totale</span>
+      <span class="stat-value" id="s-surface">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Extensif</span>
+      <span class="stat-value" id="s-ext">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Intensif</span>
+      <span class="stat-value" id="s-int">-</span>
+    </div>
+  </div>
+
+  <div id="oliveraies-list"></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script>
+const COLORS = {
+  extensif:       { fill: '#4CAF50', stroke: '#2e7d32' },
+  intensif:       { fill: '#FFC107', stroke: '#f57f17' },
+  hyper_intensif: { fill: '#F44336', stroke: '#b71c1c' },
+};
+
+// Map centered on Tunisia
+const map = L.map('map').setView([34.0, 9.0], 7);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '(c) OpenStreetMap',
+  maxZoom: 18,
+}).addTo(map);
+
+const drawnItems = new L.FeatureGroup().addTo(map);
+const resultLayer = new L.FeatureGroup().addTo(map);
+
+const drawControl = new L.Control.Draw({
+  edit: { featureGroup: drawnItems },
+  draw: {
+    polygon: { allowIntersection: false, showArea: true },
+    rectangle: false, circle: false, marker: false,
+    polyline: false, circlemarker: false,
+  },
+}).addTo(map);
+
+let drawnPolygon = null;
+let lastGeoJSON = null;
+
+map.on(L.Draw.Event.CREATED, (e) => {
+  drawnItems.clearLayers();
+  drawnItems.addLayer(e.layer);
+  drawnPolygon = e.layer.toGeoJSON().geometry;
+  document.getElementById('btn-analyze').disabled = false;
+  document.getElementById('btn-download').style.display = 'none';
+  document.getElementById('stats').style.display = 'none';
+  document.getElementById('oliveraies-list').textContent = '';
+  document.getElementById('error-msg').style.display = 'none';
+  resultLayer.clearLayers();
+});
+
+document.getElementById('btn-clear').addEventListener('click', () => {
+  drawnItems.clearLayers();
+  resultLayer.clearLayers();
+  drawnPolygon = null;
+  lastGeoJSON = null;
+  document.getElementById('btn-analyze').disabled = true;
+  document.getElementById('btn-download').style.display = 'none';
+  document.getElementById('stats').style.display = 'none';
+  document.getElementById('oliveraies-list').textContent = '';
+  document.getElementById('error-msg').style.display = 'none';
+});
+
+document.getElementById('btn-analyze').addEventListener('click', async () => {
+  if (!drawnPolygon) return;
+
+  // Warn if polygon is very large (rough bbox check > 100 km2)
+  // Shoelace formula in degrees → km² (1° lat ≈ 111 km)
+  const ring = drawnPolygon.coordinates[0];
+  let areaRaw = 0;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    areaRaw += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
+  }
+  const approxKm2 = Math.abs(areaRaw / 2) * 111 * 111;
+  if (approxKm2 > 500) {
+    const ok = confirm('La zone semble grande (' + Math.round(approxKm2) + ' km2). La reponse peut prendre plus de 30s. Continuer ?');
+    if (!ok) return;
+  }
+
+  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('btn-analyze').disabled = true;
+  document.getElementById('error-msg').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/cartographier', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        polygone_perimetre: drawnPolygon,
+        date: new Date().toISOString().slice(0, 10),
+      }),
+    });
+
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    renderResults(data);
+  } catch (err) {
+    const el = document.getElementById('error-msg');
+    el.textContent = 'Erreur: ' + err.message;
+    el.style.display = 'block';
+  } finally {
+    document.getElementById('spinner').style.display = 'none';
+    document.getElementById('btn-analyze').disabled = false;
+  }
+});
+
+function text(str) {
+  return document.createTextNode(String(str));
+}
+
+function el(tag, attrs, children) {
+  const node = document.createElement(tag);
+  if (attrs) {
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === 'className') node.className = v;
+      else node.setAttribute(k, v);
+    }
+  }
+  if (children) {
+    for (const child of children) {
+      node.appendChild(typeof child === 'string' ? text(child) : child);
+    }
+  }
+  return node;
+}
+
+function renderResults(data) {
+  const { oliveraies, stats } = data;
+
+  // Stats panel
+  document.getElementById('s-total').textContent = stats.total_oliveraies;
+  document.getElementById('s-surface').textContent = stats.surface_totale_ha.toLocaleString('fr') + ' ha';
+  document.getElementById('s-ext').textContent = (stats.repartition.extensif ?? 0) + ' parcelles';
+  document.getElementById('s-int').textContent = (stats.repartition.intensif ?? 0) + ' parcelles';
+  document.getElementById('stats').style.display = 'block';
+
+  resultLayer.clearLayers();
+  const listEl = document.getElementById('oliveraies-list');
+  listEl.textContent = '';
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Parcelles';
+  listEl.appendChild(heading);
+
+  const geoFeatures = [];
+
+  oliveraies.forEach((o, idx) => {
+    const color = COLORS[o.systeme] || COLORS.extensif;
+
+    const poly = L.geoJSON(o.polygone, {
+      style: { color: color.stroke, fillColor: color.fill, fillOpacity: 0.45, weight: 2 },
+    });
+    poly.bindPopup(
+      o.systeme + '\n' +
+      'Surface: ' + o.surface_ha + ' ha\n' +
+      'Confiance: ' + Math.round(o.confiance * 100) + '%'
+    );
+    poly.addTo(resultLayer);
+
+    // Sidebar card (DOM only, no innerHTML)
+    const badge = el('span', { className: o.systeme === 'extensif' ? 'badge badge-ext' : 'badge badge-int' }, [o.systeme]);
+    const systemeDiv = el('div', { className: 'systeme' }, [badge, ' #' + (idx + 1)]);
+    const detailsDiv = el('div', { className: 'details' }, [
+      'Surface: ', o.surface_ha + ' ha',
+      ' | Confiance: ', Math.round(o.confiance * 100) + '%',
+    ]);
+    const card = el('div', { className: 'parcel-card' }, [systemeDiv, detailsDiv]);
+    listEl.appendChild(card);
+
+    geoFeatures.push({
+      type: 'Feature',
+      geometry: o.polygone,
+      properties: { systeme: o.systeme, confiance: o.confiance, surface_ha: o.surface_ha },
+    });
+  });
+
+  lastGeoJSON = { type: 'FeatureCollection', features: geoFeatures };
+
+  if (oliveraies.length > 0) {
+    map.fitBounds(resultLayer.getBounds(), { padding: [30, 30] });
+    document.getElementById('btn-download').style.display = 'block';
+  }
+}
+
+document.getElementById('btn-download').addEventListener('click', () => {
+  if (!lastGeoJSON) return;
+  const blob = new Blob([JSON.stringify(lastGeoJSON, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'oliveraies_' + new Date().toISOString().slice(0, 10) + '.geojson';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+
+// Legend (plain DOM)
+const legend = L.control({ position: 'bottomleft' });
+legend.onAdd = () => {
+  const div = document.createElement('div');
+  div.style.cssText = 'background:#1a1a2eee;padding:10px 14px;border-radius:8px;color:#eee;font-size:13px;line-height:1.8';
+  const title = document.createElement('strong');
+  title.textContent = 'Systeme de conduite';
+  div.appendChild(title);
+  div.appendChild(document.createElement('br'));
+  [['#4CAF50','Extensif'],['#FFC107','Intensif'],['#F44336','Hyper-intensif']].forEach(([c, label]) => {
+    const span = document.createElement('span');
+    span.style.color = c;
+    span.textContent = '■ ';
+    div.appendChild(span);
+    div.appendChild(document.createTextNode(label));
+    div.appendChild(document.createElement('br'));
+  });
+  return div;
+};
+legend.addTo(map);
+</script>
+</body>
+</html>

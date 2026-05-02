@@ -1,0 +1,24 @@
+{
+  "feature_names": [
+    "ndvi_mean",
+    "ndvi_std",
+    "ndvi_p10",
+    "ndvi_p90",
+    "ndvi_amplitude",
+    "ndwi_mean",
+    "ndwi_std",
+    "ndre_mean",
+    "ndre_std",
+    "area_ha",
+    "ndvi_ndwi_ratio",
+    "texture_proxy"
+  ],
+  "classes": [
+    "extensif",
+    "intensif"
+  ],
+  "model_type": "ndwi_threshold",
+  "threshold": -0.10625463724136353,
+  "spatial_cv_f1": 0.7217,
+  "best_model": "NDWI threshold"
+}
