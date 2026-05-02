@@ -20,8 +20,14 @@ class ShapFeature(BaseModel):
     impact: float  # positive or negative float
 
 
+class IncertitudeInfo(BaseModel):
+    niveau: str  # "NORMALE" | "HAUTE"
+    sigma_log: float
+
+
 class RendementResponse(BaseModel):
     tonnage_predit_t: float
     intervalle_confiance_95: list[float]  # [min, max]
     top_features_shap: list[ShapFeature]
     date_recolte_estimee: str
+    incertitude: IncertitudeInfo | None = None

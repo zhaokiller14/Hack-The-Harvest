@@ -38,3 +38,4 @@ models/unet_history.json
 *.log
 /venv
 .claude
+.ipynb_checkpoints
