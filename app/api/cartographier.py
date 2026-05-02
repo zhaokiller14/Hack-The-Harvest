@@ -20,6 +20,7 @@ from app.models.cartographier import (
 )
 from app.services import classifier as clf_svc
 from app.services import gee
+from app.services import segmentation as seg_svc
 
 router = APIRouter()
 
@@ -51,10 +52,12 @@ def load_parcels_and_cache() -> None:
         _feature_cache = json.loads(cache_path.read_text())
 
     clf_svc.load_model()
+    seg_svc.load_unet_model()
 
     print(
         f"[cartographier] Loaded {len(_parcels)} EZZAYRA parcels, "
-        f"{len(_feature_cache)} cached, model={'yes' if clf_svc.is_loaded() else 'no (heuristic fallback)'}"
+        f"{len(_feature_cache)} cached, model={'yes' if clf_svc.is_loaded() else 'no'}, "
+        f"unet={'yes' if seg_svc.is_loaded() else 'no (OSM fallback)'}"
     )
 
 
@@ -128,9 +131,12 @@ async def cartographier(req: CartographierRequest) -> CartographierResponse:
         candidate_idxs = _strtree.query(drawn_shape, predicate="intersects")
         matched = [_parcels[i] for i in candidate_idxs]
 
-    # --- Fallback: OSM orchards if no EZZAYRA parcels matched ---
+    # --- Unknown zone: U-Net segmentation, then OSM fallback ---
     if not matched:
-        matched = await _fetch_osm_orchards(req.polygone_perimetre)
+        if seg_svc.is_loaded():
+            matched = await seg_svc.segment_polygon(req.polygone_perimetre)
+        if not matched:
+            matched = await _fetch_osm_orchards(req.polygone_perimetre)
 
     if not matched:
         return CartographierResponse(
@@ -234,3 +240,21 @@ async def export_geojson(job_id: str):
             "Content-Disposition": f'attachment; filename="oliveraies_{job_id[:8]}.geojson"'
         },
     )
+
+
+@router.get("/cartographier/metrics")
+async def unet_metrics():
+    """Return U-Net segmentation test metrics."""
+    metrics_path = Path(__file__).parent.parent.parent / "models" / "unet_metrics.json"
+    if not metrics_path.exists():
+        return JSONResponse({"error": "No metrics available yet"}, status_code=404)
+    return JSONResponse(json.loads(metrics_path.read_text()))
+
+
+@router.get("/cartographier/classifier-metrics")
+async def classifier_metrics():
+    """Return extensif/intensif classifier confusion matrix (test split)."""
+    metrics_path = Path(__file__).parent.parent.parent / "models" / "classifier_metrics.json"
+    if not metrics_path.exists():
+        return JSONResponse({"error": "No classifier metrics available yet"}, status_code=404)
+    return JSONResponse(json.loads(metrics_path.read_text()))

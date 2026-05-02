@@ -19,6 +19,7 @@
   ],
   "model_type": "ndwi_threshold",
   "threshold": -0.10625463724136353,
+  "xgb_path": null,
   "spatial_cv_f1": 0.7217,
   "best_model": "NDWI threshold"
 }

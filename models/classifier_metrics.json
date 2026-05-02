@@ -1,0 +1,16 @@
+{
+  "confusion": {
+    "tn": 23,
+    "fp": 0,
+    "fn": 1,
+    "tp": 25
+  },
+  "f1_macro": 0.9796,
+  "spatial_cv_f1": 0.7217,
+  "n_samples": 49,
+  "classes": [
+    "extensif",
+    "intensif"
+  ],
+  "note": "Matrice sur 49 parcelles avec seuil NDWI optimis\u00e9 (CV spatial F1=0.72)"
+}
