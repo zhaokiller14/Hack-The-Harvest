@@ -181,6 +181,8 @@ curl -s -X POST http://localhost:8000/api/diagnostic-anomalie \
 
 A separate application (not part of this FastAPI). Uses Whisper + CNN + RAG + TTS to answer farmer queries in Tunisian Arabic (Darija).
 
+Track 4 solution url: https://github.com/Khemiri-sahar/olive-assistant
+
 ---
 
 ## API Contracts
