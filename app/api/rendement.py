@@ -1,8 +1,10 @@
 from fastapi import APIRouter, HTTPException
+import shapely.geometry as sg
 
 from app.models.rendement import RendementRequest, RendementResponse, ShapFeature, IncertitudeInfo
 from app.services.sentinel import fetch_sentinel2
 from app.services.weather import fetch_weather
+from app.services.soil import fetch_soil
 from app.services.mlp_model import get_predictor
 
 router = APIRouter()
@@ -17,26 +19,52 @@ def _centroid(polygone: dict) -> tuple[float, float]:
     return (sum(lats) / len(lats), sum(lons) / len(lons))
 
 
+def _area_ha(polygone: dict) -> float:
+    """Compute parcel area in hectares from a GeoJSON polygon (WGS84)."""
+    try:
+        geom = sg.shape(polygone)
+        # Project to an equal-area CRS approximation using degree-to-metre ratio
+        lat = geom.centroid.y
+        import math
+        m_per_deg_lat = 111_132.0
+        m_per_deg_lon = 111_132.0 * math.cos(math.radians(lat))
+        # Scale polygon to metres and compute area
+        scaled = sg.Polygon([
+            (x * m_per_deg_lon, y * m_per_deg_lat)
+            for x, y in geom.exterior.coords
+        ])
+        return max(0.1, scaled.area / 10_000)  # m² → ha
+    except Exception:
+        return 2.5
+
+
 @router.post("/predire-rendement", response_model=RendementResponse)
 async def predire_rendement(req: RendementRequest) -> RendementResponse:
     try:
-        # Collecte des données externes
         lat, lon = _centroid(req.parcelle.polygone)
-        bands = await fetch_sentinel2(req.parcelle.polygone, req.date_prediction)
-        weather = await fetch_weather(lat, lon, req.date_prediction)
+        area_ha  = _area_ha(req.parcelle.polygone)
 
-        # Prédiction avec MLP + MC Dropout
+        # Fetch all data sources in parallel
+        import asyncio
+        bands, weather, soil = await asyncio.gather(
+            fetch_sentinel2(req.parcelle.polygone, req.date_prediction),
+            fetch_weather(lat, lon, req.date_prediction,
+                          date_plantation=req.parcelle.date_plantation),
+            fetch_soil(lat, lon),
+        )
+
         predictor = get_predictor()
         result = predictor.predict(
             bands=bands,
-            weather=weather, 
+            weather=weather,
             date_plantation=req.parcelle.date_plantation,
-            date_prediction=req.date_prediction
+            date_prediction=req.date_prediction,
+            soil=soil,
+            area_ha=area_ha,
         )
 
-        # Conversion des features SHAP
         shap_features = [
-            ShapFeature(feature=f["feature"], impact=f["impact"]) 
+            ShapFeature(feature=f["feature"], impact=f["impact"])
             for f in result["top_features_shap"]
         ]
 
@@ -50,9 +78,9 @@ async def predire_rendement(req: RendementRequest) -> RendementResponse:
                 sigma_log=result["incertitude_sigma_log"]
             )
         )
-        
+
     except Exception as e:
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail=f"Erreur prédiction rendement: {str(e)}"
         )

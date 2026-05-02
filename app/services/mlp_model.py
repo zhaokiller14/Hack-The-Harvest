@@ -1,6 +1,5 @@
 """
 MLP + MC Dropout pour prédiction de rendement tomate
-Remplace LightGBM + kNN par un modèle neuronal unifié
 """
 
 import numpy as np
@@ -8,8 +7,9 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 from typing import Tuple
-import joblib
 from datetime import datetime, timedelta
+
+from app.services.feature_builder import build_features
 
 
 class MCDropoutMLP(nn.Module):
@@ -99,48 +99,9 @@ class RendementPredictor:
         """Normalise les features avec le scaler sauvegardé"""
         return (features - self.scaler_mean) / self.scaler_std
     
-    def _extract_features_from_api(self, bands: dict, weather: dict, 
-                                   date_plantation: str, date_prediction: str) -> dict:
-        """
-        Extrait et calcule les features à partir des données API
-        SIMULATION pour la démo — dans la vraie vie, ces features viendraient 
-        du pipeline complet EZZAYRA
-        """
-        # Calculs temporels
-        plantation = datetime.strptime(date_plantation, "%Y-%m-%d")
-        prediction = datetime.strptime(date_prediction, "%Y-%m-%d")
-        days_since_planting = (prediction - plantation).days
-        
-        # Features simulées basées sur les inputs API
-        ndvi_series = bands.get('ndvi_series', [0.3, 0.5, 0.7, 0.6])
-        precip_series = weather.get('precipitation_mm', [5, 12, 8, 3, 0])
-        temp_series = weather.get('temperature_2m', [22, 25, 28, 30, 27])
-        
-        # Agrégats par phase phénologique simulée
-        features = {
-            'ndvi_mean_s2': np.mean(ndvi_series[:2]) if len(ndvi_series) > 1 else 0.4,
-            'ndvi_max_s2': np.max(ndvi_series[:2]) if len(ndvi_series) > 1 else 0.5,
-            'ndvi_std_s2': np.std(ndvi_series[:2]) if len(ndvi_series) > 1 else 0.1,
-            'et0_mean_s2': 4.2,  # valeur typique Tunisie
-            'temp_min_s2': np.min(temp_series[:3]) if len(temp_series) > 2 else 20,
-            'precip_cum_s3': np.sum(precip_series[2:5]) if len(precip_series) > 4 else 15,
-            'stress_hydrique_s3': max(0, 30 - np.sum(precip_series[2:5])),
-            'gdd_s2': days_since_planting * 0.8,  # approximation GDD
-            'bdod': 1.4,  # densité sol typique
-            'clay': 25.0,  # % argile typique
-            'sand': 45.0,  # % sable typique
-            'area_polygon': 2.5,  # ha approximatif
-        }
-        
-        # Complète avec des zéros pour atteindre le bon nombre de features
-        # En production, toutes les 178 features seraient calculées
-        for i in range(len(features), 178):
-            features[f'feature_{i}'] = 0.0
-            
-        return features
-    
-    def predict(self, bands: dict, weather: dict, date_plantation: str, 
-                date_prediction: str) -> dict:
+    def predict(self, bands: dict, weather: dict, date_plantation: str,
+                date_prediction: str, soil: dict | None = None,
+                area_ha: float = 2.5) -> dict:
         """
         Prédiction complète avec intervalle de confiance et flags d'incertitude
         
@@ -150,19 +111,15 @@ class RendementPredictor:
         """
         if not self.is_loaded:
             self.load_model()
-            
-        # Extraction des features
-        features_dict = self._extract_features_from_api(
-            bands, weather, date_plantation, date_prediction
+
+        # Build full feature dict from all data sources
+        features_dict = build_features(
+            weather=weather,
+            soil=soil or {},
+            bands=bands,
+            area_ha=area_ha,
         )
-        
-        # Conversion en array ordonné selon feature_cols
-        if len(features_dict) < len(self.feature_cols):
-            # Complète les features manquantes avec des zéros
-            for col in self.feature_cols:
-                if col not in features_dict:
-                    features_dict[col] = 0.0
-        
+
         feature_array = np.array([features_dict.get(col, 0.0) for col in self.feature_cols])
         feature_array = feature_array.reshape(1, -1).astype(np.float32)
         
@@ -176,9 +133,9 @@ class RendementPredictor:
         # Conversion en espace linéaire
         tonnage_pred = np.exp(mean_log.item())
         
-        # Intervalle de confiance 95%
-        ci_low = np.exp(mean_log.item() - 1.96 * std_log.item())
-        ci_high = np.exp(mean_log.item() + 1.96 * std_log.item())
+        # Intervalle de confiance 95% — clamped to physically observed range (11–165 t/ha)
+        ci_low  = max(10.0, np.exp(mean_log.item() - 1.96 * std_log.item()))
+        ci_high = min(200.0, np.exp(mean_log.item() + 1.96 * std_log.item()))
         
         # Flag d'incertitude (seuil calibré sur validation)
         uncertainty_level = "NORMALE"
@@ -187,13 +144,17 @@ class RendementPredictor:
         elif tonnage_pred < 30 or tonnage_pred > 120:
             uncertainty_level = "HAUTE"  # prédictions extrêmes
             
-        # SHAP simulé (en production, calculé avec le vrai explainer)
+        # Approximate SHAP via feature sensitivity (gradient × feature value)
+        x_tensor.requires_grad_(True)
+        pred_for_grad = self.model(x_tensor)
+        pred_for_grad.backward()
+        gradients = x_tensor.grad.detach().numpy().flatten()
+        x_tensor.requires_grad_(False)
+        sensitivity = gradients * features_norm.flatten()
+        top_idx = abs(sensitivity).argsort()[::-1][:5]
         top_shap = [
-            {"feature": "ndvi_max_s2", "impact": 8.4},
-            {"feature": "stress_hydrique_s3", "impact": -3.1}, 
-            {"feature": "temp_min_s2", "impact": 2.7},
-            {"feature": "precip_cum_s3", "impact": -1.8},
-            {"feature": "bdod", "impact": 1.2}
+            {"feature": self.feature_cols[i], "impact": round(float(sensitivity[i]), 3)}
+            for i in top_idx
         ]
         
         # Date de récolte estimée (plantation + ~120 jours)
@@ -201,8 +162,8 @@ class RendementPredictor:
         harvest_date = plantation_date + timedelta(days=120)
         
         return {
-            "tonnage_predit_t": round(tonnage_pred, 1),
-            "intervalle_confiance_95": [round(ci_low, 1), round(ci_high, 1)],
+            "tonnage_predit_t": round(float(tonnage_pred), 1),
+            "intervalle_confiance_95": [round(float(ci_low), 1), round(float(ci_high), 1)],
             "incertitude_niveau": uncertainty_level,
             "incertitude_sigma_log": round(std_log.item(), 3),
             "top_features_shap": top_shap,
