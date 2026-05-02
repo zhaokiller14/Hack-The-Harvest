@@ -143,24 +143,44 @@ def main():
         int_val = (y[val_idx] == 1).sum()
         print(f"  Fold {fold+1}: threshold={m.threshold:.3f}  F1={f1:.3f}  (val: {ext_val} ext, {int_val} int)")
 
+    # Prefer XGBoost when within 0.02 of best — more robust on unseen zones
+    xgb_name = next((n for n in candidates if "XGBoost" in n), None)
+    if xgb_name:
+        xgb_mean, _ = spatial_cv_f1(candidates[xgb_name], X, y, groups)
+        if xgb_mean >= best_mean - 0.02:
+            best_name = xgb_name
+            best_fn = candidates[xgb_name]
+            best_mean = xgb_mean
+            print(f"Preferring XGBoost (F1={xgb_mean:.3f}) for robustness on unseen zones")
+
     print(f"\nSelected: {best_name}  (spatial CV F1={best_mean:.3f})")
 
-    # Train final model on ALL data
     final_model = best_fn()  # type: ignore[misc]
     final_model.fit(X, y)
 
     # Save model
     if isinstance(final_model, NdwiThresholdClassifier):
-        model_data = {
+        MODEL_PATH.write_text(json.dumps({
             "model_type": "ndwi_threshold",
             "threshold": float(final_model.threshold),
             "feature_names": FEATURE_NAMES,
             "classes": ["extensif", "intensif"],
-        }
-        MODEL_PATH.write_text(json.dumps(model_data, indent=2))
+        }, indent=2))
         print(f"\nNDWI threshold = {final_model.threshold:.4f}")
+        model_type_str = "ndwi_threshold"
+        xgb_filename = None
     else:
-        final_model.save_model(MODEL_PATH)
+        xgb_path = MODEL_DIR / "classifier_xgb.json"
+        final_model.save_model(xgb_path)
+        MODEL_PATH.write_text(json.dumps({
+            "model_type": "xgboost",
+            "xgb_path": "classifier_xgb.json",
+            "feature_names": FEATURE_NAMES,
+            "classes": ["extensif", "intensif"],
+        }, indent=2))
+        print(f"\nXGBoost model saved to {xgb_path}")
+        model_type_str = "xgboost"
+        xgb_filename = "classifier_xgb.json"
 
     # Evaluate on test split
     test_mask = np.array([s == "test" for s in splits])
@@ -172,8 +192,9 @@ def main():
     META_PATH.write_text(json.dumps({
         "feature_names": FEATURE_NAMES,
         "classes": ["extensif", "intensif"],
-        "model_type": "ndwi_threshold" if isinstance(final_model, NdwiThresholdClassifier) else "xgboost",
+        "model_type": model_type_str,
         "threshold": float(final_model.threshold) if isinstance(final_model, NdwiThresholdClassifier) else None,
+        "xgb_path": xgb_filename,
         "spatial_cv_f1": round(best_mean, 4),
         "best_model": best_name,
     }, indent=2))

@@ -35,18 +35,26 @@ def load_model() -> None:
     if _model_type == "ndwi_threshold":
         _ndwi_threshold = float(meta.get("threshold") or -0.054)
 
-    elif _model_type == "xgboost" and _MODEL_PATH.exists():
-        try:
-            content = json.loads(_MODEL_PATH.read_text())
-            if "threshold" in content:
-                # classifier.json was written as threshold JSON, not XGBoost binary
-                _model_type = "ndwi_threshold"
-                _ndwi_threshold = float(content.get("threshold", _ndwi_threshold))
-            else:
+    elif _model_type == "xgboost":
+        xgb_filename = meta.get("xgb_path", "classifier_xgb.json")
+        xgb_path = _MODEL_DIR / xgb_filename
+        if xgb_path.exists():
+            try:
                 _xgb_model = xgb.XGBClassifier()
-                _xgb_model.load_model(_MODEL_PATH)
-        except Exception:
-            pass
+                _xgb_model.load_model(xgb_path)
+            except Exception as e:
+                print(f"[classifier] Failed to load XGBoost from {xgb_path}: {e}")
+        elif _MODEL_PATH.exists():
+            try:
+                content = json.loads(_MODEL_PATH.read_text())
+                if "threshold" in content:
+                    _model_type = "ndwi_threshold"
+                    _ndwi_threshold = float(content.get("threshold", _ndwi_threshold))
+                else:
+                    _xgb_model = xgb.XGBClassifier()
+                    _xgb_model.load_model(_MODEL_PATH)
+            except Exception:
+                pass
 
     elif _model_type == "sklearn":
         import joblib

@@ -58,6 +58,23 @@
       margin-bottom: 10px;
     }
 
+    #progress-bar { display:none; padding:12px 16px; border-bottom:1px solid #0f3460; }
+    .progress-step { display:flex; align-items:center; gap:8px; padding:3px 0; color:#888; font-size:0.8rem; transition:color 0.3s; }
+    .progress-step.active { color:#e94560; font-weight:600; }
+    .progress-step.done { color:#4CAF50; }
+    .progress-dot { width:8px; height:8px; border-radius:50%; background:#333; flex-shrink:0; transition:background 0.3s; }
+    .progress-step.active .progress-dot { background:#e94560; }
+    .progress-step.done .progress-dot { background:#4CAF50; }
+    #confusion-panel { display:none; padding:12px 16px; border-top:1px solid #0f3460; font-size:0.78rem; }
+    #confusion-panel h3 { font-size:0.85rem; margin-bottom:8px; color:#aaa; }
+    .cm-table { width:100%; border-collapse:collapse; }
+    .cm-table td, .cm-table th { border:1px solid #0f3460; padding:4px 8px; text-align:center; }
+    .cm-table th { background:#0f3460; color:#ccc; font-size:0.75rem; }
+    .cm-tp { background:rgba(76,175,80,0.25); }
+    .cm-tn { background:rgba(76,175,80,0.15); }
+    .cm-fp { background:rgba(244,67,54,0.2); }
+    .cm-fn { background:rgba(244,67,54,0.15); }
+
     button {
       width: 100%;
       padding: 10px;
@@ -161,6 +178,12 @@
     <button id="btn-download">Telecharger GeoJSON</button>
   </div>
 
+  <div id="progress-bar">
+    <div class="progress-step" id="step-sentinel"><div class="progress-dot"></div>Téléchargement Sentinel-2...</div>
+    <div class="progress-step" id="step-unet"><div class="progress-dot"></div>Segmentation U-Net...</div>
+    <div class="progress-step" id="step-classify"><div class="progress-dot"></div>Classification...</div>
+  </div>
+
   <div id="spinner">Analyse en cours...</div>
   <div id="error-msg"></div>
 
@@ -185,6 +208,16 @@
   </div>
 
   <div id="oliveraies-list"></div>
+
+  <div id="confusion-panel">
+    <h3>Matrice de confusion U-Net (test)</h3>
+    <table class="cm-table">
+      <tr><th></th><th>Préd. Fond</th><th>Préd. Olivier</th></tr>
+      <tr><th>Vrai Fond</th><td class="cm-tn" id="cm-tn">—</td><td class="cm-fp" id="cm-fp">—</td></tr>
+      <tr><th>Vrai Olivier</th><td class="cm-fn" id="cm-fn">—</td><td class="cm-tp" id="cm-tp">—</td></tr>
+    </table>
+    <p style="margin-top:6px;color:#888" id="cm-metrics-text"></p>
+  </div>
 </div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -242,11 +275,25 @@ document.getElementById('btn-clear').addEventListener('click', () => {
   document.getElementById('error-msg').style.display = 'none';
 });
 
+const STEPS = ['step-sentinel', 'step-unet', 'step-classify'];
+
+function setStep(activeIdx) {
+  STEPS.forEach((id, i) => {
+    const s = document.getElementById(id);
+    s.classList.remove('active', 'done');
+    if (i < activeIdx) s.classList.add('done');
+    else if (i === activeIdx) s.classList.add('active');
+  });
+}
+
+function resetProgress() {
+  STEPS.forEach(id => document.getElementById(id).classList.remove('active', 'done'));
+  document.getElementById('progress-bar').style.display = 'none';
+}
+
 document.getElementById('btn-analyze').addEventListener('click', async () => {
   if (!drawnPolygon) return;
 
-  // Warn if polygon is very large (rough bbox check > 100 km2)
-  // Shoelace formula in degrees → km² (1° lat ≈ 111 km)
   const ring = drawnPolygon.coordinates[0];
   let areaRaw = 0;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -258,9 +305,18 @@ document.getElementById('btn-analyze').addEventListener('click', async () => {
     if (!ok) return;
   }
 
-  document.getElementById('spinner').style.display = 'block';
+  document.getElementById('progress-bar').style.display = 'block';
   document.getElementById('btn-analyze').disabled = true;
   document.getElementById('error-msg').style.display = 'none';
+  document.getElementById('stats').style.display = 'none';
+  document.getElementById('oliveraies-list').textContent = '';
+  document.getElementById('btn-download').style.display = 'none';
+  setStep(0);
+
+  const stepTimer = setInterval(() => {
+    const cur = STEPS.findIndex(id => document.getElementById(id).classList.contains('active'));
+    if (cur >= 0 && cur < STEPS.length - 1) setStep(cur + 1);
+  }, 4000);
 
   try {
     const res = await fetch('/api/cartographier', {
@@ -272,18 +328,38 @@ document.getElementById('btn-analyze').addEventListener('click', async () => {
       }),
     });
 
+    clearInterval(stepTimer);
+    STEPS.forEach(id => document.getElementById(id).classList.add('done'));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    renderResults(data);
+    setTimeout(() => { resetProgress(); renderResults(data); }, 600);
   } catch (err) {
-    const el = document.getElementById('error-msg');
-    el.textContent = 'Erreur: ' + err.message;
-    el.style.display = 'block';
+    clearInterval(stepTimer);
+    resetProgress();
+    const errEl = document.getElementById('error-msg');
+    errEl.textContent = 'Erreur: ' + err.message;
+    errEl.style.display = 'block';
   } finally {
-    document.getElementById('spinner').style.display = 'none';
     document.getElementById('btn-analyze').disabled = false;
   }
 });
+
+(async function loadConfusionMatrix() {
+  try {
+    const res = await fetch('/api/cartographier/metrics');
+    if (!res.ok) return;
+    const data = await res.json();
+    const cm = data.confusion;
+    if (!cm) return;
+    document.getElementById('cm-tn').textContent = cm.tn ?? '—';
+    document.getElementById('cm-fp').textContent = cm.fp ?? '—';
+    document.getElementById('cm-fn').textContent = cm.fn ?? '—';
+    document.getElementById('cm-tp').textContent = cm.tp ?? '—';
+    document.getElementById('cm-metrics-text').textContent =
+      'IoU: ' + (data.iou ?? '—') + '  F1: ' + (data.f1 ?? '—');
+    document.getElementById('confusion-panel').style.display = 'block';
+  } catch (_) {}
+})();
 
 function text(str) {
   return document.createTextNode(String(str));
