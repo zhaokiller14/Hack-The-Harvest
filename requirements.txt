@@ -9,3 +9,12 @@ scikit-learn>=1.4.0
 numpy>=1.26.0
 shapely>=2.0.0
 earthengine-api>=0.1.400
+pandas
+numpy
+matplotlib
+seaborn
+lightgbm
+shap
+scikit-learn
+ipykernel
+jupyter
