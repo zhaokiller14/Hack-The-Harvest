@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ardhi — Anomalie</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/css/design.css" />
+  <style>
+    .ndvi-chart-wrap { position: relative; height: 140px; }
+    .score-vert   { color: #16A34A; }
+    .score-orange { color: #D97706; }
+    .score-rouge  { color: #DC2626; }
+    .parcel-meta  { font-size: .75rem; color: var(--c-muted); margin-top: 4px; font-family: var(--font-mono); }
+
+    /* Leaflet popup overrides */
+    .leaflet-popup-content-wrapper { border-radius: 8px; font-family: 'Ubuntu', sans-serif; }
+    .leaflet-popup-content { margin: 10px 12px; min-width: 180px; }
+    .popup-title  { font-weight: 700; font-size: .85rem; margin-bottom: 6px; color: #072C2C; }
+    .popup-row    { font-size: .78rem; color: #6B7280; display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+    .popup-row strong { color: #111827; }
+  </style>
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="topnav-brand" href="/">Ardhi</a>
+  <div class="topnav-links">
+    <a href="/">Cartographie</a>
+    <a href="/rendement.html">Rendement</a>
+    <a href="/anomalie.html" class="active">Anomalie</a>
+  </div>
+</nav>
+
+<div class="app-layout">
+  <div id="map"></div>
+
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>Diagnostic d'Anomalie</h1>
+      <p>Sélectionnez une parcelle et une date pour détecter les anomalies végétatives.</p>
+    </div>
+
+    <div class="sidebar-body">
+
+      <!-- Parcel select -->
+      <div class="field">
+        <label for="f-parcel">Parcelle</label>
+        <select id="f-parcel">
+          <option value="">Chargement…</option>
+        </select>
+        <div class="parcel-meta" id="parcel-meta"></div>
+      </div>
+
+      <!-- Système (read-only) + Date -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="field">
+          <label>Système</label>
+          <div style="display:flex;align-items:center;height:34px;">
+            <span class="badge" id="f-systeme-badge">—</span>
+            <input type="hidden" id="f-systeme" value="" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="f-date">Date d'observation</label>
+          <input type="date" id="f-date" />
+        </div>
+      </div>
+
+      <div id="alert-err" class="alert alert-error"></div>
+
+      <button class="btn btn-primary" id="btn-diagnose">Lancer le diagnostic</button>
+      <button class="btn btn-ghost"   id="btn-reset">Réinitialiser</button>
+
+      <!-- Progress -->
+      <div class="steps" id="steps">
+        <div class="step" id="stp-weather"><div class="step-dot"></div>Récupération météo...</div>
+        <div class="step" id="stp-ndvi"><div class="step-dot"></div>Série NDVI Sentinel-2...</div>
+        <div class="step" id="stp-prophet"><div class="step-dot"></div>Baseline Prophet...</div>
+        <div class="step" id="stp-score"><div class="step-dot"></div>Calcul du score...</div>
+      </div>
+
+      <!-- Results -->
+      <div class="results" id="results">
+
+        <div class="section-title">Résultats</div>
+
+        <div class="score-display">
+          <div class="score-number" id="r-score">—</div>
+          <div class="score-meta">
+            <div class="label">Score d'anomalie</div>
+            <span class="badge" id="r-statut">—</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">NDVI — Observé vs Attendu</div>
+          <div class="ndvi-chart-wrap">
+            <canvas id="ndvi-chart"></canvas>
+          </div>
+          <div style="display:flex;gap:16px;font-size:.72rem;color:var(--c-muted);margin-top:6px;">
+            <span><span style="display:inline-block;width:10px;height:3px;background:#FF5F03;vertical-align:middle;margin-right:3px;border-radius:2px;"></span>Observé</span>
+            <span><span style="display:inline-block;width:10px;height:3px;background:#072C2C;vertical-align:middle;margin-right:3px;border-radius:2px;"></span>Attendu</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-title">Diagnostic</div>
+          <div class="info-block">
+            <div class="info-label">Explication</div>
+            <p id="r-explication">—</p>
+          </div>
+          <div class="info-block" style="margin-top:10px;">
+            <div class="info-label">Recommandation</div>
+            <p id="r-recommandation">—</p>
+          </div>
+        </div>
+
+      </div><!-- /results -->
+    </div><!-- /sidebar-body -->
+  </div><!-- /sidebar -->
+</div><!-- /app-layout -->
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script type="module">
+import { api } from '/js/api.js';
+
+const $ = id => document.getElementById(id);
+
+/* ── Colour palette ───────────────────────────────────────────────────── */
+const STATUS_STYLE = {
+  vert:   { color: '#166534', fillColor: '#16A34A', fillOpacity: .45 },
+  orange: { color: '#92400E', fillColor: '#D97706', fillOpacity: .45 },
+  rouge:  { color: '#991B1B', fillColor: '#DC2626', fillOpacity: .45 },
+};
+const NEUTRAL_STYLE  = { color: '#6B7280', fillColor: '#9CA3AF', fillOpacity: .18, weight: 1.5 };
+const SELECTED_STYLE = { color: '#FF5F03', fillColor: '#FF5F03', fillOpacity: .22, weight: 2.5 };
+
+/* ── Map setup ────────────────────────────────────────────────────────── */
+const map = L.map('map').setView([35.0, 10.4], 9);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '© OpenStreetMap', maxZoom: 18,
+}).addTo(map);
+
+/* ── Parcel layers registry ───────────────────────────────────────────── */
+let parcelsById   = {};   // id → parcel data
+let layersById    = {};   // id → Leaflet layer
+let selectedId    = null;
+
+/* ── Load parcels → draw on map ───────────────────────────────────────── */
+api.listParcels().then(({ parcels }) => {
+  parcelsById = Object.fromEntries(parcels.map(p => [p.id, p]));
+
+  // Populate dropdown
+  const sel = $('f-parcel');
+  sel.innerHTML = '<option value="">— Sélectionner une parcelle —</option>';
+  parcels.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.id + (p.area_ha ? `  (${p.area_ha.toFixed(0)} ha)` : '');
+    sel.appendChild(opt);
+  });
+
+  // Draw all parcels as neutral polygons
+  parcels.forEach(p => {
+    if (!p.polygone) return;
+    const layer = L.geoJSON(p.polygone, { style: NEUTRAL_STYLE })
+      .bindTooltip(p.id + ' · ' + p.systeme, { sticky: true, className: 'leaflet-tooltip' })
+      .on('click', () => selectParcel(p.id))
+      .addTo(map);
+    layersById[p.id] = layer;
+  });
+
+  // Fit map to all parcels
+  const allLayers = Object.values(layersById);
+  if (allLayers.length) {
+    const group = L.featureGroup(allLayers);
+    map.fitBounds(group.getBounds(), { padding: [20, 20] });
+  }
+}).catch(() => {
+  $('f-parcel').innerHTML = '<option value="">Erreur de chargement</option>';
+});
+
+/* ── Select a parcel (from dropdown or map click) ─────────────────────── */
+function selectParcel(id) {
+  // Reset previously selected parcel style (only if it hasn't been diagnosed)
+  if (selectedId && layersById[selectedId]) {
+    const prev = parcelsById[selectedId];
+    layersById[selectedId].setStyle(prev?._diagnosedStyle || NEUTRAL_STYLE);
+  }
+
+  selectedId = id;
+  $('f-parcel').value = id;
+
+  const p = parcelsById[id];
+  if (!p) return;
+
+  // Highlight on map
+  if (layersById[id]) {
+    layersById[id].setStyle(SELECTED_STYLE);
+    map.fitBounds(layersById[id].getBounds(), { padding: [60, 60], maxZoom: 14 });
+  }
+
+  // Fill badge
+  const systeme = p.systeme || 'extensif';
+  $('f-systeme').value  = systeme;
+  $('f-systeme-badge').textContent = systeme.replace('_', ' ');
+  $('f-systeme-badge').className   = 'badge badge-' + (systeme === 'extensif' ? 'ext' : 'int');
+  $('parcel-meta').textContent = p.area_ha ? `Surface : ${p.area_ha.toFixed(1)} ha` : '';
+}
+
+$('f-parcel').addEventListener('change', (e) => {
+  if (e.target.value) selectParcel(e.target.value);
+});
+
+/* ── Default date ─────────────────────────────────────────────────────── */
+$('f-date').value = new Date().toISOString().slice(0, 10);
+
+/* ── Progress steps ───────────────────────────────────────────────────── */
+const STEPS = ['stp-weather', 'stp-ndvi', 'stp-prophet', 'stp-score'];
+
+function setStepState(idx) {
+  STEPS.forEach((id, i) => {
+    const el = $(id);
+    el.classList.remove('active', 'done');
+    if (i < idx) el.classList.add('done');
+    else if (i === idx) el.classList.add('active');
+  });
+}
+
+function showError(msg) { const e = $('alert-err'); e.textContent = msg; e.style.display = 'block'; }
+function hideError()    { $('alert-err').style.display = 'none'; }
+
+let ndviChart = null;
+
+/* ── Submit ───────────────────────────────────────────────────────────── */
+$('btn-diagnose').addEventListener('click', async () => {
+  hideError();
+  $('results').style.display = 'none';
+
+  const parcelId = $('f-parcel').value;
+  const systeme  = $('f-systeme').value;
+  const date     = $('f-date').value;
+
+  if (!parcelId) { showError('Sélectionnez une parcelle.'); return; }
+  if (!date)     { showError('Sélectionnez une date d\'observation.'); return; }
+
+  const parcel = parcelsById[parcelId];
+  if (!parcel?.polygone) { showError('Polygone introuvable pour cette parcelle.'); return; }
+
+  $('btn-diagnose').disabled = true;
+  $('steps').style.display   = 'flex';
+  setStepState(0);
+
+  const timer = setInterval(() => {
+    const cur = STEPS.findIndex(id => $(id).classList.contains('active'));
+    if (cur >= 0 && cur < STEPS.length - 1) setStepState(cur + 1);
+  }, 2500);
+
+  try {
+    const data = await api.diagnosticAnomalie({
+      oliveraie: { id: parcelId, polygone: parcel.polygone, systeme },
+      date,
+    });
+
+    clearInterval(timer);
+    STEPS.forEach(id => $(id).classList.add('done'));
+    setTimeout(() => {
+      $('steps').style.display = 'none';
+      STEPS.forEach(id => $(id).classList.remove('active', 'done'));
+      renderResults(data, parcelId, date);
+    }, 400);
+  } catch (err) {
+    clearInterval(timer);
+    $('steps').style.display = 'none';
+    STEPS.forEach(id => $(id).classList.remove('active', 'done'));
+    showError('Erreur : ' + err.message);
+  } finally {
+    $('btn-diagnose').disabled = false;
+  }
+});
+
+$('btn-reset').addEventListener('click', () => {
+  // Reset diagnosed parcel back to neutral on map
+  if (selectedId && layersById[selectedId]) {
+    layersById[selectedId].setStyle(NEUTRAL_STYLE);
+    layersById[selectedId].unbindPopup();
+    if (parcelsById[selectedId]) delete parcelsById[selectedId]._diagnosedStyle;
+  }
+  $('f-parcel').value          = '';
+  $('f-systeme-badge').textContent = '—';
+  $('f-systeme-badge').className   = 'badge';
+  $('f-systeme').value         = '';
+  $('parcel-meta').textContent = '';
+  $('results').style.display   = 'none';
+  selectedId = null;
+  hideError();
+});
+
+/* ── Render results + update map ──────────────────────────────────────── */
+function renderResults(d, parcelId, date) {
+  // ── Sidebar ──────────────────────────────────────────────────────────
+  $('r-score').textContent  = d.anomaly_score.toFixed(2);
+  $('r-score').className    = 'score-number score-' + d.statut;
+  $('r-statut').textContent = d.statut.toUpperCase();
+  $('r-statut').className   = 'badge badge-' + d.statut;
+
+  const labels = d.ndvi_observe.map((_, i) => 'S' + (i + 1));
+  if (ndviChart) ndviChart.destroy();
+  ndviChart = new Chart($('ndvi-chart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Observé',
+          data: d.ndvi_observe,
+          borderColor: '#FF5F03',
+          backgroundColor: 'rgba(255,95,3,.08)',
+          borderWidth: 2,
+          pointRadius: 4,
+          pointBackgroundColor: '#FF5F03',
+          tension: .3,
+          fill: true,
+        },
+        {
+          label: 'Attendu',
+          data: d.ndvi_attendu,
+          borderColor: '#072C2C',
+          borderWidth: 2,
+          borderDash: [5, 4],
+          pointRadius: 3,
+          pointBackgroundColor: '#072C2C',
+          tension: .3,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.dataset.label + ' : ' + ctx.parsed.y.toFixed(4) } },
+      },
+      scales: {
+        y: { title: { display: true, text: 'NDVI', font: { size: 10 }, color: '#6B7280' }, ticks: { font: { size: 10 } }, grid: { color: '#E5E7EB' } },
+        x: { ticks: { font: { size: 10 } }, grid: { display: false } },
+      },
+    },
+  });
+
+  $('r-explication').textContent    = d.explication;
+  $('r-recommandation').textContent = d.recommandation;
+  $('results').style.display = 'block';
+
+  // ── Map ───────────────────────────────────────────────────────────────
+  const style = STATUS_STYLE[d.statut] || NEUTRAL_STYLE;
+  if (layersById[parcelId]) {
+    layersById[parcelId].setStyle({ ...style, weight: 2.5 });
+
+    // Remember diagnosed style so reset can restore neutral
+    if (parcelsById[parcelId]) parcelsById[parcelId]._diagnosedStyle = null;
+
+    // Build popup content
+    const ndviRows = d.ndvi_observe.map((v, i) =>
+      `<div class="popup-row"><span>S${i+1} observé</span><strong>${v.toFixed(3)}</strong></div>` +
+      `<div class="popup-row"><span>S${i+1} attendu</span><strong>${d.ndvi_attendu[i].toFixed(3)}</strong></div>`
+    ).join('');
+
+    const badgeColor = d.statut === 'vert' ? '#16A34A' : d.statut === 'orange' ? '#D97706' : '#DC2626';
+    const popupHtml = `
+      <div class="popup-title">${parcelId}</div>
+      <div class="popup-row">
+        <span>Statut</span>
+        <strong style="color:${badgeColor}">${d.statut.toUpperCase()}</strong>
+      </div>
+      <div class="popup-row"><span>Score</span><strong>${d.anomaly_score.toFixed(2)}</strong></div>
+      <div class="popup-row"><span>Date</span><strong>${date}</strong></div>
+      <hr style="border:none;border-top:1px solid #E5E7EB;margin:6px 0;" />
+      ${ndviRows}
+      <hr style="border:none;border-top:1px solid #E5E7EB;margin:6px 0;" />
+      <div style="font-size:.75rem;color:#6B7280;line-height:1.4;">${d.explication}</div>`;
+
+    layersById[parcelId]
+      .bindPopup(popupHtml, { maxWidth: 260 })
+      .openPopup();
+  }
+}
+
+/* ── Legend ───────────────────────────────────────────────────────────── */
+const legend = L.control({ position: 'bottomleft' });
+legend.onAdd = () => {
+  const d = document.createElement('div');
+  d.style.cssText = 'background:rgba(7,44,44,.92);padding:10px 14px;border-radius:8px;color:#fff;font-size:12px;line-height:1.9;font-family:Ubuntu,sans-serif;';
+  const t = document.createElement('strong'); t.textContent = 'Statut anomalie';
+  d.appendChild(t); d.appendChild(document.createElement('br'));
+  [['#16A34A','Vert — normal'],['#D97706','Orange — stress modéré'],['#DC2626','Rouge — alerte'],['#9CA3AF','Non diagnostiqué']].forEach(([c, label]) => {
+    const s = document.createElement('span'); s.style.color = c; s.textContent = '■ ';
+    d.appendChild(s); d.appendChild(document.createTextNode(label)); d.appendChild(document.createElement('br'));
+  });
+  return d;
+};
+legend.addTo(map);
+</script>
+</body>
+</html>

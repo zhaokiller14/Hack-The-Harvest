@@ -127,7 +127,7 @@ def _fill_gaps(series: dict[str, list[float | None]]) -> dict[str, list[float]]:
     return filled
 
 
-async def fetch_sentinel2(
+async def fetch_sentinel2_bands(
     polygone: dict[str, Any],
     date_prediction: str,
     date_plantation: str = "",

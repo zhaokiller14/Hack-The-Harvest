@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ardhi — Rendement</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+  <link rel="stylesheet" href="/css/design.css" />
+</head>
+<body>
+
+<nav class="topnav">
+  <a class="topnav-brand" href="/">Ardhi</a>
+  <div class="topnav-links">
+    <a href="/">Cartographie</a>
+    <a href="/rendement.html" class="active">Rendement</a>
+    <a href="/anomalie.html">Anomalie</a>
+  </div>
+</nav>
+
+<div class="app-layout">
+  <div id="map"></div>
+
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>Prédiction de Rendement</h1>
+      <p>Saisissez les informations de la parcelle pour obtenir une estimation du rendement tomate.</p>
+    </div>
+
+    <div class="sidebar-body">
+
+      <!-- Polygon — always synced between map and textarea -->
+      <div class="field">
+        <label for="geojson-input">Polygone GeoJSON
+          <span style="font-weight:400;color:var(--c-muted);font-size:.72rem;"> — dessinez sur la carte ou collez ici</span>
+        </label>
+        <textarea id="geojson-input" rows="4"
+          placeholder='{"type":"Polygon","coordinates":[[[lon,lat],…]]}'></textarea>
+        <div id="geojson-status" style="font-size:.72rem;margin-top:3px;min-height:14px;"></div>
+      </div>
+
+      <!-- Form -->
+      <div class="field">
+        <label for="f-plantation">Date de plantation</label>
+        <input type="date" id="f-plantation" />
+      </div>
+      <div class="field">
+        <label for="f-variete">Variété</label>
+        <input type="text" id="f-variete" placeholder="ex : Rio Grande" value="Rio Grande" />
+      </div>
+      <div class="field">
+        <label for="f-prediction">Date de prédiction</label>
+        <input type="date" id="f-prediction" />
+      </div>
+
+      <div id="alert-err" class="alert alert-error"></div>
+
+      <button class="btn btn-primary" id="btn-predict">Prédire le rendement</button>
+      <button class="btn btn-ghost" id="btn-reset">Réinitialiser</button>
+
+      <!-- Progress -->
+      <div class="steps" id="steps">
+        <div class="step" id="stp-data"><div class="step-dot"></div>Récupération des données...</div>
+        <div class="step" id="stp-model"><div class="step-dot"></div>Inférence du modèle MLP...</div>
+        <div class="step" id="stp-shap"><div class="step-dot"></div>Calcul SHAP...</div>
+      </div>
+
+      <!-- Results -->
+      <div class="results" id="results">
+
+        <div class="section-title">Résultats</div>
+
+        <div class="stat-grid">
+          <div class="stat-cell">
+            <div class="label">Rendement prédit</div>
+            <div class="value" id="r-tonnage">—</div>
+          </div>
+          <div class="stat-cell">
+            <div class="label">Récolte estimée</div>
+            <div class="value" id="r-recolte">—</div>
+          </div>
+        </div>
+
+        <!-- Confidence interval bar -->
+        <div class="card">
+          <div class="card-title">Intervalle de confiance 95%</div>
+          <div class="ci-bar">
+            <div class="ci-label">
+              <span id="r-ci-low">—</span>
+              <span id="r-ci-high">—</span>
+            </div>
+            <div class="ci-track" id="ci-track">
+              <div class="ci-fill" id="ci-fill"></div>
+              <div class="ci-center" id="ci-center"></div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:10px;">
+            <span style="font-size:.76rem;color:var(--c-muted);">Incertitude :</span>
+            <span class="badge" id="r-incertitude">—</span>
+          </div>
+        </div>
+
+        <!-- SHAP -->
+        <div class="card">
+          <div class="card-title">Variables influentes (SHAP)</div>
+          <div class="shap-list" id="shap-list"></div>
+        </div>
+
+      </div><!-- /results -->
+    </div><!-- /sidebar-body -->
+  </div><!-- /sidebar -->
+</div><!-- /app-layout -->
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
+<script type="module">
+import { api }       from '/js/api.js';
+import { createMap } from '/js/map.js';
+
+const $ = id => document.getElementById(id);
+const textarea = $('geojson-input');
+const status   = $('geojson-status');
+
+/* ── Map — onDraw fills the textarea ─────────────────────────────────── */
+const { getPolygon, clearDraw, loadPolygon } = createMap('map', [34.0, 9.0], 7, (geom) => {
+  textarea.value = JSON.stringify(geom, null, 2);
+  setStatus('✓ Polygone chargé depuis la carte', 'var(--c-success)');
+});
+
+/* ── Textarea → map sync ──────────────────────────────────────────────── */
+function setStatus(msg, color) {
+  status.textContent  = msg;
+  status.style.color  = color;
+}
+
+function syncTextareaToMap() {
+  const raw = textarea.value.trim();
+  if (!raw) { setStatus('', ''); return; }
+  try {
+    const parsed = JSON.parse(raw);
+    const geom   = parsed.type === 'Feature' ? parsed.geometry : parsed;
+    if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') {
+      setStatus('⚠ Type invalide — attendu Polygon', 'var(--c-warning)');
+      return;
+    }
+    loadPolygon(geom);           // draws on map + fires onDraw (which re-fills textarea, no loop — same value)
+    setStatus('✓ Polygone chargé depuis le JSON', 'var(--c-success)');
+  } catch {
+    setStatus('⚠ JSON invalide', 'var(--c-danger)');
+  }
+}
+
+// Sync on blur (user finished typing/pasting)
+textarea.addEventListener('blur', syncTextareaToMap);
+
+// Also sync on paste immediately
+textarea.addEventListener('paste', () => setTimeout(syncTextareaToMap, 50));
+
+/* ── Helpers ──────────────────────────────────────────────────────────── */
+const STEPS = ['stp-data', 'stp-model', 'stp-shap'];
+
+function setStepState(idx) {
+  STEPS.forEach((id, i) => {
+    const el = $(id);
+    el.classList.remove('active', 'done');
+    if (i < idx) el.classList.add('done');
+    else if (i === idx) el.classList.add('active');
+  });
+}
+
+function showError(msg) { const e = $('alert-err'); e.textContent = msg; e.style.display = 'block'; }
+function hideError()    { $('alert-err').style.display = 'none'; }
+
+function getPolygonForRequest() {
+  const poly = getPolygon();
+  if (!poly) throw new Error('Dessinez un polygone sur la carte ou collez un GeoJSON.');
+  return poly;
+}
+
+/* ── Submit ───────────────────────────────────────────────────────────── */
+$('btn-predict').addEventListener('click', async () => {
+  hideError();
+  $('results').style.display = 'none';
+
+  let polygon;
+  try { polygon = getPolygonForRequest(); } catch (e) { showError(e.message); return; }
+
+  const plantation = $('f-plantation').value;
+  const variete    = $('f-variete').value.trim();
+  const prediction = $('f-prediction').value;
+
+  if (!plantation) { showError('Sélectionnez la date de plantation.'); return; }
+  if (!variete)    { showError('Saisissez la variété.'); return; }
+  if (!prediction) { showError('Sélectionnez la date de prédiction.'); return; }
+
+  $('btn-predict').disabled = true;
+  $('steps').style.display  = 'flex';
+  setStepState(0);
+
+  const timer = setInterval(() => {
+    const cur = STEPS.findIndex(id => $(id).classList.contains('active'));
+    if (cur >= 0 && cur < STEPS.length - 1) setStepState(cur + 1);
+  }, 3000);
+
+  try {
+    const data = await api.predireRendement({
+      parcelle: {
+        id: 'parcelle-' + Date.now(),
+        polygone: polygon,
+        date_plantation: plantation,
+        variete,
+      },
+      date_prediction: prediction,
+    });
+
+    clearInterval(timer);
+    STEPS.forEach(id => $(id).classList.add('done'));
+    setTimeout(() => {
+      $('steps').style.display = 'none';
+      STEPS.forEach(id => $(id).classList.remove('active','done'));
+      renderResults(data);
+    }, 500);
+  } catch (err) {
+    clearInterval(timer);
+    $('steps').style.display = 'none';
+    STEPS.forEach(id => $(id).classList.remove('active','done'));
+    showError('Erreur : ' + err.message);
+  } finally {
+    $('btn-predict').disabled = false;
+  }
+});
+
+$('btn-reset').addEventListener('click', () => {
+  clearDraw();
+  textarea.value      = '';
+  status.textContent  = '';
+  $('results').style.display = 'none';
+  hideError();
+});
+
+/* ── Render results ───────────────────────────────────────────────────── */
+function renderResults(d) {
+  $('r-tonnage').textContent = d.tonnage_predit_t.toLocaleString('fr') + ' t';
+  $('r-recolte').textContent  = d.date_recolte_estimee;
+
+  // CI bar
+  const [low, high] = d.intervalle_confiance_95;
+  const mid = d.tonnage_predit_t;
+  const range = high - low || 1;
+  $('r-ci-low').textContent  = low.toLocaleString('fr') + ' t';
+  $('r-ci-high').textContent = high.toLocaleString('fr') + ' t';
+  $('ci-fill').style.left   = '0';
+  $('ci-fill').style.width  = '100%';
+  $('ci-center').style.left = ((mid - low) / range * 100).toFixed(1) + '%';
+
+  // Uncertainty badge
+  const niveau = d.incertitude?.niveau ?? 'NORMALE';
+  $('r-incertitude').textContent = niveau;
+  $('r-incertitude').className   = 'badge badge-' + niveau.toLowerCase();
+
+  // SHAP bars
+  const maxAbs = Math.max(...d.top_features_shap.map(f => Math.abs(f.impact)), 1e-6);
+  const list = $('shap-list');
+  list.innerHTML = '';
+  d.top_features_shap.forEach(f => {
+    const pct = (Math.abs(f.impact) / maxAbs * 100).toFixed(1);
+    const isPos = f.impact >= 0;
+    const row = document.createElement('div');
+    row.className = 'shap-row';
+    row.innerHTML = `
+      <div class="shap-name">${f.feature}</div>
+      <div class="shap-bar-row">
+        <div class="shap-track"><div class="shap-fill ${isPos ? 'shap-pos' : 'shap-neg'}" style="width:${pct}%"></div></div>
+        <span class="shap-val">${f.impact > 0 ? '+' : ''}${f.impact.toFixed(3)}</span>
+      </div>`;
+    list.appendChild(row);
+  });
+
+  $('results').style.display = 'block';
+}
+</script>
+</body>
+</html>

@@ -69,7 +69,7 @@ class RendementPredictor:
     Prédicteur de rendement unifié utilisant MLP + MC Dropout
     """
     
-    def __init__(self, model_path: str = "mlp_model.pt"):
+    def __init__(self, model_path: str = str(Path(__file__).resolve().parent.parent.parent / "models" / "mlp_model.pt")):
         self.model_path = Path(model_path)
         self.model = None
         self.scaler = None

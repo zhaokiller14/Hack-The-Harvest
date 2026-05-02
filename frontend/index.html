@@ -3,220 +3,84 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Hack The Harvest — Cartographie des Oliveraies</title>
-
+  <title>Ardhi — Cartographie</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
-
+  <link rel="stylesheet" href="/css/design.css" />
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    body {
-      font-family: 'Segoe UI', sans-serif;
-      display: flex;
-      height: 100vh;
-      background: #1a1a2e;
-      color: #eee;
-    }
-
-    #map { flex: 1; }
-
-    #sidebar {
-      width: 340px;
-      display: flex;
-      flex-direction: column;
-      background: #16213e;
-      border-left: 2px solid #0f3460;
-      overflow-y: auto;
-    }
-
-    #sidebar header {
-      padding: 18px 16px 12px;
-      background: #0f3460;
-    }
-
-    #sidebar header h1 {
-      font-size: 1.1rem;
-      font-weight: 700;
-      color: #e94560;
-    }
-
-    #sidebar header p {
-      font-size: 0.78rem;
-      color: #aaa;
-      margin-top: 4px;
-    }
-
-    #controls {
-      padding: 14px 16px;
-      border-bottom: 1px solid #0f3460;
-    }
-
-    #controls p {
-      font-size: 0.8rem;
-      color: #aaa;
-      margin-bottom: 10px;
-    }
-
-    #progress-bar { display:none; padding:12px 16px; border-bottom:1px solid #0f3460; }
-    .progress-step { display:flex; align-items:center; gap:8px; padding:3px 0; color:#888; font-size:0.8rem; transition:color 0.3s; }
-    .progress-step.active { color:#e94560; font-weight:600; }
-    .progress-step.done { color:#4CAF50; }
-    .progress-dot { width:8px; height:8px; border-radius:50%; background:#333; flex-shrink:0; transition:background 0.3s; }
-    .progress-step.active .progress-dot { background:#e94560; }
-    .progress-step.done .progress-dot { background:#4CAF50; }
-    #confusion-panel { display:none; padding:12px 16px; border-top:1px solid #0f3460; font-size:0.78rem; }
-    #confusion-panel h3 { font-size:0.85rem; margin-bottom:8px; color:#aaa; }
-    .cm-table { width:100%; border-collapse:collapse; }
-    .cm-table td, .cm-table th { border:1px solid #0f3460; padding:4px 8px; text-align:center; }
-    .cm-table th { background:#0f3460; color:#ccc; font-size:0.75rem; }
-    .cm-tp { background:rgba(76,175,80,0.25); }
-    .cm-tn { background:rgba(76,175,80,0.15); }
-    .cm-fp { background:rgba(244,67,54,0.2); }
-    .cm-fn { background:rgba(244,67,54,0.15); }
-
-    button {
-      width: 100%;
-      padding: 10px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 0.85rem;
-      font-weight: 600;
-      transition: opacity 0.2s;
-      margin-bottom: 8px;
-    }
-
-    button:hover { opacity: 0.85; }
-    button:disabled { opacity: 0.4; cursor: default; }
-
-    #btn-analyze { background: #e94560; color: #fff; }
-    #btn-clear { background: #0f3460; color: #ccc; }
-    #btn-download { background: #1a6b3c; color: #fff; display: none; }
-
-    #spinner {
-      display: none;
-      text-align: center;
-      padding: 12px;
-      color: #aaa;
-      font-size: 0.82rem;
-    }
-
-    #stats {
-      padding: 14px 16px;
-      border-bottom: 1px solid #0f3460;
-      display: none;
-    }
-
-    #stats h2, #oliveraies-list h2 {
-      font-size: 0.85rem;
-      color: #e94560;
-      margin-bottom: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .stat-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 6px 0;
-      border-bottom: 1px solid #0f3460;
-      font-size: 0.82rem;
-    }
-
-    .stat-row:last-child { border-bottom: none; }
-    .stat-label { color: #aaa; }
-    .stat-value { font-weight: 700; color: #eee; }
-
-    .badge {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 10px;
-      font-size: 0.72rem;
-      font-weight: 700;
-    }
-
-    .badge-ext { background: #2d5a27; color: #7dff6b; }
-    .badge-int { background: #5a4a00; color: #ffd700; }
-
-    #oliveraies-list { padding: 14px 16px; }
-
-    .parcel-card {
-      background: #0f3460;
-      border-radius: 6px;
-      padding: 8px 10px;
-      margin-bottom: 8px;
-      font-size: 0.78rem;
-    }
-
-    .parcel-card .systeme { font-weight: 700; margin-bottom: 4px; }
-    .parcel-card .details { color: #aaa; }
-
-    #error-msg {
-      padding: 12px 16px;
-      color: #e94560;
-      font-size: 0.8rem;
-      display: none;
-    }
+    /* cartographie-specific overrides */
+    #stats, #oliveraies-list { padding: 0 16px 12px; }
+    #stats { display: none; }
+    #stats h2, #oliveraies-list h2 { font-family: var(--font-display); font-size: .78rem; font-weight: 600; color: var(--c-secondary); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 8px; }
+    #oliveraies-list { padding-bottom: 16px; }
+    #controls { padding: 14px 16px; border-bottom: 1px solid var(--c-border); }
+    #controls p { font-size: .78rem; color: var(--c-muted); margin-bottom: 10px; }
+    #progress-bar { display: none; padding: 10px 16px; border-bottom: 1px solid var(--c-border); }
+    #confusion-panel { display: none; padding: 12px 16px; border-top: 1px solid var(--c-border); }
+    #confusion-panel h3 { font-size: .8rem; margin-bottom: 8px; color: var(--c-muted); }
+    #cm-metrics-text { margin-top: 6px; color: var(--c-muted); font-size: .75rem; }
+    #error-msg { padding: 10px 16px; color: #991B1B; font-size: .8rem; display: none; background: #FEE2E2; margin: 8px 16px; border-radius: var(--radius-sm); border-left: 3px solid var(--c-danger); }
+    #spinner { display: none; text-align: center; padding: 10px; color: var(--c-muted); font-size: .8rem; }
+    #btn-download { display: none; }
   </style>
 </head>
 <body>
 
-<div id="map"></div>
-
-<div id="sidebar">
-  <header>
-    <h1>Cartographie Oliveraies</h1>
-    <p>Dessinez un polygone sur la carte pour détecter et classifier les oliveraies.</p>
-  </header>
-
-  <div id="controls">
-    <p>Utilisez l'outil polygone (barre gauche) pour délimiter une zone.</p>
-    <button id="btn-analyze" disabled>Analyser cette zone</button>
-    <button id="btn-clear">Effacer</button>
-    <button id="btn-download">Telecharger GeoJSON</button>
+<nav class="topnav">
+  <a class="topnav-brand" href="/">Ardhi</a>
+  <div class="topnav-links">
+    <a href="/" class="active">Cartographie</a>
+    <a href="/rendement.html">Rendement</a>
+    <a href="/anomalie.html">Anomalie</a>
   </div>
+</nav>
 
-  <div id="progress-bar">
-    <div class="progress-step" id="step-sentinel"><div class="progress-dot"></div>Téléchargement Sentinel-2...</div>
-    <div class="progress-step" id="step-unet"><div class="progress-dot"></div>Segmentation U-Net...</div>
-    <div class="progress-step" id="step-classify"><div class="progress-dot"></div>Classification...</div>
-  </div>
+<div class="app-layout">
+  <div id="map"></div>
 
-  <div id="spinner">Analyse en cours...</div>
-  <div id="error-msg"></div>
-
-  <div id="stats">
-    <h2>Resultats</h2>
-    <div class="stat-row">
-      <span class="stat-label">Oliveraies detectees</span>
-      <span class="stat-value" id="s-total">-</span>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>Cartographie des Oliveraies</h1>
+      <p>Dessinez un polygone sur la carte pour détecter et classifier les oliveraies.</p>
     </div>
-    <div class="stat-row">
-      <span class="stat-label">Surface totale</span>
-      <span class="stat-value" id="s-surface">-</span>
-    </div>
-    <div class="stat-row">
-      <span class="stat-label">Extensif</span>
-      <span class="stat-value" id="s-ext">-</span>
-    </div>
-    <div class="stat-row">
-      <span class="stat-label">Intensif</span>
-      <span class="stat-value" id="s-int">-</span>
-    </div>
-  </div>
 
-  <div id="oliveraies-list"></div>
+    <div id="controls">
+      <p>Utilisez l'outil polygone (barre gauche) pour délimiter une zone.</p>
+      <button class="btn btn-primary" id="btn-analyze" disabled>Analyser cette zone</button>
+      <button class="btn btn-ghost" id="btn-clear">Effacer</button>
+      <button class="btn btn-success" id="btn-download">Télécharger GeoJSON</button>
+    </div>
 
-  <div id="confusion-panel">
-    <h3>Matrice de confusion — Classification (test)</h3>
-    <table class="cm-table">
-      <tr><th></th><th>Préd. Extensif</th><th>Préd. Intensif</th></tr>
-      <tr><th>Vrai Extensif</th><td class="cm-tn" id="cm-tn">—</td><td class="cm-fp" id="cm-fp">—</td></tr>
-      <tr><th>Vrai Intensif</th><td class="cm-fn" id="cm-fn">—</td><td class="cm-tp" id="cm-tp">—</td></tr>
-    </table>
-    <p style="margin-top:6px;color:#888" id="cm-metrics-text"></p>
+    <div id="progress-bar" class="steps" style="display:none; padding:10px 16px;">
+      <div class="step" id="step-sentinel"><div class="step-dot"></div>Téléchargement Sentinel-2...</div>
+      <div class="step" id="step-unet"><div class="step-dot"></div>Segmentation U-Net...</div>
+      <div class="step" id="step-classify"><div class="step-dot"></div>Classification...</div>
+    </div>
+
+    <div id="spinner" class="spinner">Analyse en cours...</div>
+    <div id="error-msg"></div>
+
+    <div id="stats">
+      <h2>Résultats</h2>
+      <div class="stat-grid">
+        <div class="stat-cell"><div class="label">Oliveraies</div><div class="value" id="s-total">—</div></div>
+        <div class="stat-cell"><div class="label">Surface totale</div><div class="value" id="s-surface">—</div></div>
+        <div class="stat-cell"><div class="label">Extensif</div><div class="value" id="s-ext">—</div></div>
+        <div class="stat-cell"><div class="label">Intensif</div><div class="value" id="s-int">—</div></div>
+      </div>
+    </div>
+
+    <div id="oliveraies-list"></div>
+
+    <div id="confusion-panel" class="cm-wrap" style="display:none; padding:12px 16px; border-top:1px solid var(--c-border);">
+      <h3>Matrice de confusion — Classification (test)</h3>
+      <table class="cm-table">
+        <tr><th></th><th>Préd. Extensif</th><th>Préd. Intensif</th></tr>
+        <tr><th>Vrai Extensif</th><td class="cm-tn" id="cm-tn">—</td><td class="cm-fp" id="cm-fp">—</td></tr>
+        <tr><th>Vrai Intensif</th><td class="cm-fn" id="cm-fn">—</td><td class="cm-tp" id="cm-tp">—</td></tr>
+      </table>
+      <p id="cm-metrics-text"></p>
+    </div>
   </div>
 </div>
 
@@ -224,67 +88,56 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 <script>
 const COLORS = {
-  extensif: { fill: '#4CAF50', stroke: '#2e7d32' },
-  intensif:  { fill: '#FFC107', stroke: '#f57f17' },
+  extensif: { fill: '#16A34A', stroke: '#166534' },
+  intensif: { fill: '#D97706', stroke: '#92400E' },
 };
 
-// Map centered on Tunisia
 const map = L.map('map').setView([34.0, 9.0], 7);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  attribution: '(c) OpenStreetMap',
-  maxZoom: 18,
-}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap', maxZoom: 18 }).addTo(map);
 
 const drawnItems = new L.FeatureGroup().addTo(map);
 const resultLayer = new L.FeatureGroup().addTo(map);
 
-const drawControl = new L.Control.Draw({
+new L.Control.Draw({
   edit: { featureGroup: drawnItems },
-  draw: {
-    polygon: { allowIntersection: false, showArea: true },
-    rectangle: false, circle: false, marker: false,
-    polyline: false, circlemarker: false,
-  },
+  draw: { polygon: { allowIntersection: false, showArea: true }, rectangle: false, circle: false, marker: false, polyline: false, circlemarker: false },
 }).addTo(map);
 
-let drawnPolygon = null;
-let lastGeoJSON = null;
+let drawnPolygon = null, lastGeoJSON = null;
 
 map.on(L.Draw.Event.CREATED, (e) => {
   drawnItems.clearLayers();
   drawnItems.addLayer(e.layer);
   drawnPolygon = e.layer.toGeoJSON().geometry;
   document.getElementById('btn-analyze').disabled = false;
+  resetUI();
+});
+
+function resetUI() {
   document.getElementById('btn-download').style.display = 'none';
   document.getElementById('stats').style.display = 'none';
   document.getElementById('oliveraies-list').textContent = '';
   document.getElementById('error-msg').style.display = 'none';
   resultLayer.clearLayers();
-});
+}
 
 document.getElementById('btn-clear').addEventListener('click', () => {
   drawnItems.clearLayers();
-  resultLayer.clearLayers();
   drawnPolygon = null;
   lastGeoJSON = null;
   document.getElementById('btn-analyze').disabled = true;
-  document.getElementById('btn-download').style.display = 'none';
-  document.getElementById('stats').style.display = 'none';
-  document.getElementById('oliveraies-list').textContent = '';
-  document.getElementById('error-msg').style.display = 'none';
+  resetUI();
 });
 
 const STEPS = ['step-sentinel', 'step-unet', 'step-classify'];
-
-function setStep(activeIdx) {
-  STEPS.forEach((id, i) => {
+function setStep(i) {
+  STEPS.forEach((id, j) => {
     const s = document.getElementById(id);
     s.classList.remove('active', 'done');
-    if (i < activeIdx) s.classList.add('done');
-    else if (i === activeIdx) s.classList.add('active');
+    if (j < i) s.classList.add('done');
+    else if (j === i) s.classList.add('active');
   });
 }
-
 function resetProgress() {
   STEPS.forEach(id => document.getElementById(id).classList.remove('active', 'done'));
   document.getElementById('progress-bar').style.display = 'none';
@@ -294,17 +147,15 @@ document.getElementById('btn-analyze').addEventListener('click', async () => {
   if (!drawnPolygon) return;
 
   const ring = drawnPolygon.coordinates[0];
-  let areaRaw = 0;
+  let area = 0;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    areaRaw += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
+    area += (ring[j][0] + ring[i][0]) * (ring[j][1] - ring[i][1]);
   }
-  const approxKm2 = Math.abs(areaRaw / 2) * 111 * 111;
-  if (approxKm2 > 500) {
-    const ok = confirm('La zone semble grande (' + Math.round(approxKm2) + ' km2). La reponse peut prendre plus de 30s. Continuer ?');
-    if (!ok) return;
+  if (Math.abs(area / 2) * 111 * 111 > 500) {
+    if (!confirm('Zone grande (>' + Math.round(Math.abs(area / 2) * 111 * 111) + ' km²). Continuer ?')) return;
   }
 
-  document.getElementById('progress-bar').style.display = 'block';
+  document.getElementById('progress-bar').style.display = 'flex';
   document.getElementById('btn-analyze').disabled = true;
   document.getElementById('error-msg').style.display = 'none';
   document.getElementById('stats').style.display = 'none';
@@ -321,12 +172,8 @@ document.getElementById('btn-analyze').addEventListener('click', async () => {
     const res = await fetch('/api/cartographier', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        polygone_perimetre: drawnPolygon,
-        date: new Date().toISOString().slice(0, 10),
-      }),
+      body: JSON.stringify({ polygone_perimetre: drawnPolygon, date: new Date().toISOString().slice(0, 10) }),
     });
-
     clearInterval(stepTimer);
     STEPS.forEach(id => document.getElementById(id).classList.add('done'));
     if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -335,104 +182,67 @@ document.getElementById('btn-analyze').addEventListener('click', async () => {
   } catch (err) {
     clearInterval(stepTimer);
     resetProgress();
-    const errEl = document.getElementById('error-msg');
-    errEl.textContent = 'Erreur: ' + err.message;
-    errEl.style.display = 'block';
+    const el = document.getElementById('error-msg');
+    el.textContent = 'Erreur : ' + err.message;
+    el.style.display = 'block';
   } finally {
     document.getElementById('btn-analyze').disabled = false;
   }
 });
 
-(async function loadConfusionMatrix() {
+(async function loadMetrics() {
   try {
     const res = await fetch('/api/cartographier/classifier-metrics');
     if (!res.ok) return;
-    const data = await res.json();
-    const cm = data.confusion;
-    if (!cm) return;
+    const d = await res.json();
+    if (!d.confusion) return;
+    const cm = d.confusion;
     document.getElementById('cm-tn').textContent = cm.tn ?? '—';
     document.getElementById('cm-fp').textContent = cm.fp ?? '—';
     document.getElementById('cm-fn').textContent = cm.fn ?? '—';
     document.getElementById('cm-tp').textContent = cm.tp ?? '—';
     document.getElementById('cm-metrics-text').textContent =
-      'F1 macro: ' + (data.f1_macro ?? '—') + '  CV F1: ' + (data.spatial_cv_f1 ?? '—');
+      'F1 macro : ' + (d.f1_macro ?? '—') + '  |  CV F1 : ' + (d.spatial_cv_f1 ?? '—');
     document.getElementById('confusion-panel').style.display = 'block';
   } catch (_) {}
 })();
 
-function text(str) {
-  return document.createTextNode(String(str));
-}
-
-function el(tag, attrs, children) {
+function el(tag, cls, children) {
   const node = document.createElement(tag);
-  if (attrs) {
-    for (const [k, v] of Object.entries(attrs)) {
-      if (k === 'className') node.className = v;
-      else node.setAttribute(k, v);
-    }
-  }
-  if (children) {
-    for (const child of children) {
-      node.appendChild(typeof child === 'string' ? text(child) : child);
-    }
-  }
+  if (cls) node.className = cls;
+  (children || []).forEach(c => node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c));
   return node;
 }
 
 function renderResults(data) {
   const { oliveraies, stats } = data;
-
-  // Stats panel
-  document.getElementById('s-total').textContent = stats.total_oliveraies;
+  document.getElementById('s-total').textContent   = stats.total_oliveraies;
   document.getElementById('s-surface').textContent = stats.surface_totale_ha.toLocaleString('fr') + ' ha';
-  document.getElementById('s-ext').textContent = (stats.repartition.extensif ?? 0) + ' parcelles';
-  document.getElementById('s-int').textContent = (stats.repartition.intensif ?? 0) + ' parcelles';
-  document.getElementById('stats').style.display = 'block';
+  document.getElementById('s-ext').textContent     = (stats.repartition.extensif ?? 0) + ' parcelles';
+  document.getElementById('s-int').textContent     = (stats.repartition.intensif ?? 0) + ' parcelles';
+  document.getElementById('stats').style.display   = 'block';
 
   resultLayer.clearLayers();
   const listEl = document.getElementById('oliveraies-list');
   listEl.textContent = '';
+  listEl.appendChild(el('h2', null, ['Parcelles']));
 
-  const heading = document.createElement('h2');
-  heading.textContent = 'Parcelles';
-  listEl.appendChild(heading);
+  const features = [];
+  oliveraies.forEach((o, i) => {
+    const c = COLORS[o.systeme] || COLORS.extensif;
+    L.geoJSON(o.polygone, { style: { color: c.stroke, fillColor: c.fill, fillOpacity: .4, weight: 2 } })
+      .bindPopup(o.systeme + ' — ' + o.surface_ha + ' ha (' + Math.round(o.confiance * 100) + '%)')
+      .addTo(resultLayer);
 
-  const geoFeatures = [];
-
-  oliveraies.forEach((o, idx) => {
-    const color = COLORS[o.systeme] || COLORS.extensif;
-
-    const poly = L.geoJSON(o.polygone, {
-      style: { color: color.stroke, fillColor: color.fill, fillOpacity: 0.45, weight: 2 },
-    });
-    poly.bindPopup(
-      o.systeme + '\n' +
-      'Surface: ' + o.surface_ha + ' ha\n' +
-      'Confiance: ' + Math.round(o.confiance * 100) + '%'
-    );
-    poly.addTo(resultLayer);
-
-    // Sidebar card (DOM only, no innerHTML)
-    const badgeCls = o.systeme === 'extensif' ? 'badge badge-ext' : 'badge badge-int';
-    const badge = el('span', { className: badgeCls }, [o.systeme]);
-    const systemeDiv = el('div', { className: 'systeme' }, [badge, ' #' + (idx + 1)]);
-    const detailsDiv = el('div', { className: 'details' }, [
-      'Surface: ', o.surface_ha + ' ha',
-      ' | Confiance: ', Math.round(o.confiance * 100) + '%',
-    ]);
-    const card = el('div', { className: 'parcel-card' }, [systemeDiv, detailsDiv]);
-    listEl.appendChild(card);
-
-    geoFeatures.push({
-      type: 'Feature',
-      geometry: o.polygone,
-      properties: { systeme: o.systeme, confiance: o.confiance, surface_ha: o.surface_ha },
-    });
+    const badgeCls = 'badge badge-' + (o.systeme === 'extensif' ? 'ext' : 'int');
+    listEl.appendChild(el('div', 'parcel-card', [
+      el('div', 'systeme', [el('span', badgeCls, [o.systeme]), ' #' + (i + 1)]),
+      el('div', 'details', ['Surface : ' + o.surface_ha + ' ha  |  Confiance : ' + Math.round(o.confiance * 100) + '%']),
+    ]));
+    features.push({ type: 'Feature', geometry: o.polygone, properties: { systeme: o.systeme, confiance: o.confiance, surface_ha: o.surface_ha } });
   });
 
-  lastGeoJSON = { type: 'FeatureCollection', features: geoFeatures };
-
+  lastGeoJSON = { type: 'FeatureCollection', features };
   if (oliveraies.length > 0) {
     map.fitBounds(resultLayer.getBounds(), { padding: [30, 30] });
     document.getElementById('btn-download').style.display = 'block';
@@ -441,33 +251,23 @@ function renderResults(data) {
 
 document.getElementById('btn-download').addEventListener('click', () => {
   if (!lastGeoJSON) return;
-  const blob = new Blob([JSON.stringify(lastGeoJSON, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(lastGeoJSON, null, 2)], { type: 'application/json' }));
   a.download = 'oliveraies_' + new Date().toISOString().slice(0, 10) + '.geojson';
   a.click();
-  URL.revokeObjectURL(url);
 });
 
-// Legend (plain DOM)
 const legend = L.control({ position: 'bottomleft' });
 legend.onAdd = () => {
-  const div = document.createElement('div');
-  div.style.cssText = 'background:#1a1a2eee;padding:10px 14px;border-radius:8px;color:#eee;font-size:13px;line-height:1.8';
-  const title = document.createElement('strong');
-  title.textContent = 'Systeme de conduite';
-  div.appendChild(title);
-  div.appendChild(document.createElement('br'));
-  [['#4CAF50','Extensif'],['#FFC107','Intensif']].forEach(([c, label]) => {
-    const span = document.createElement('span');
-    span.style.color = c;
-    span.textContent = '■ ';
-    div.appendChild(span);
-    div.appendChild(document.createTextNode(label));
-    div.appendChild(document.createElement('br'));
+  const d = document.createElement('div');
+  d.style.cssText = 'background:rgba(7,44,44,.9);padding:10px 14px;border-radius:8px;color:#fff;font-size:13px;line-height:1.8;font-family:Ubuntu,sans-serif;';
+  const t = document.createElement('strong'); t.textContent = 'Système de conduite';
+  d.appendChild(t); d.appendChild(document.createElement('br'));
+  [['#16A34A','Extensif'],['#D97706','Intensif']].forEach(([c, label]) => {
+    const s = document.createElement('span'); s.style.color = c; s.textContent = '■ ';
+    d.appendChild(s); d.appendChild(document.createTextNode(label)); d.appendChild(document.createElement('br'));
   });
-  return div;
+  return d;
 };
 legend.addTo(map);
 </script>

@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 import shapely.geometry as sg
 
 from app.models.rendement import RendementRequest, RendementResponse, ShapFeature, IncertitudeInfo
-from app.services.sentinel import fetch_sentinel2
+from app.services.sentinel import fetch_sentinel2_bands
 from app.services.weather import fetch_weather
 from app.services.soil import fetch_soil
 from app.services.mlp_model import get_predictor
@@ -46,16 +46,32 @@ async def predire_rendement(req: RendementRequest) -> RendementResponse:
 
         # Fetch all data sources in parallel
         import asyncio
-        bands, weather, soil = await asyncio.gather(
-            fetch_sentinel2(
+        from datetime import date as _date, timedelta as _td
+        plantation = _date.fromisoformat(req.parcelle.date_plantation)
+        season_ends = [
+            (plantation + _td(days=30 * (i + 1))).isoformat()
+            for i in range(4)
+        ]
+        bands, w1, w2, w3, w4, soil = await asyncio.gather(
+            fetch_sentinel2_bands(
                 polygone=req.parcelle.polygone,
                 date_prediction=req.date_prediction,
                 date_plantation=req.parcelle.date_plantation,
             ),
-            fetch_weather(lat, lon, req.date_prediction,
-                          date_plantation=req.parcelle.date_plantation),
+            fetch_weather(lat, lon, season_ends[0]),
+            fetch_weather(lat, lon, season_ends[1]),
+            fetch_weather(lat, lon, season_ends[2]),
+            fetch_weather(lat, lon, season_ends[3]),
             fetch_soil(lat, lon),
         )
+        weather = {
+            "s1": w1, "s2": w2, "s3": w3, "s4": w4,
+            "total": {
+                "gdd_total":    w1["gdd"] + w2["gdd"] + w3["gdd"] + w4["gdd"],
+                "precip_total": w1["rainfall_mm"] + w2["rainfall_mm"] + w3["rainfall_mm"] + w4["rainfall_mm"],
+                "stress_total": w1["et0_mm"] + w2["et0_mm"] + w3["et0_mm"] + w4["et0_mm"],
+            },
+        }
 
         predictor = get_predictor()
         result = predictor.predict(

@@ -1,0 +1,27 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Data & notebooks (not needed at runtime)
+data/
+scripts/
+docs/
+*.ipynb
+*.pdf
+
+# Dev/local
+.env
+.git/
+.gitignore
+*.md
+AGENTS.md
+CLAUDE.md
+
+# Test artifacts
+tests/
+.pytest_cache/
