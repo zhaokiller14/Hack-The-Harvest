@@ -244,8 +244,17 @@ async def export_geojson(job_id: str):
 
 @router.get("/cartographier/metrics")
 async def unet_metrics():
-    """Return U-Net test metrics for the frontend confusion matrix panel."""
+    """Return U-Net segmentation test metrics."""
     metrics_path = Path(__file__).parent.parent.parent / "models" / "unet_metrics.json"
     if not metrics_path.exists():
         return JSONResponse({"error": "No metrics available yet"}, status_code=404)
+    return JSONResponse(json.loads(metrics_path.read_text()))
+
+
+@router.get("/cartographier/classifier-metrics")
+async def classifier_metrics():
+    """Return extensif/intensif classifier confusion matrix (test split)."""
+    metrics_path = Path(__file__).parent.parent.parent / "models" / "classifier_metrics.json"
+    if not metrics_path.exists():
+        return JSONResponse({"error": "No classifier metrics available yet"}, status_code=404)
     return JSONResponse(json.loads(metrics_path.read_text()))

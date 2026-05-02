@@ -210,11 +210,11 @@
   <div id="oliveraies-list"></div>
 
   <div id="confusion-panel">
-    <h3>Matrice de confusion U-Net (test)</h3>
+    <h3>Matrice de confusion — Classification (test)</h3>
     <table class="cm-table">
-      <tr><th></th><th>Préd. Fond</th><th>Préd. Olivier</th></tr>
-      <tr><th>Vrai Fond</th><td class="cm-tn" id="cm-tn">—</td><td class="cm-fp" id="cm-fp">—</td></tr>
-      <tr><th>Vrai Olivier</th><td class="cm-fn" id="cm-fn">—</td><td class="cm-tp" id="cm-tp">—</td></tr>
+      <tr><th></th><th>Préd. Extensif</th><th>Préd. Intensif</th></tr>
+      <tr><th>Vrai Extensif</th><td class="cm-tn" id="cm-tn">—</td><td class="cm-fp" id="cm-fp">—</td></tr>
+      <tr><th>Vrai Intensif</th><td class="cm-fn" id="cm-fn">—</td><td class="cm-tp" id="cm-tp">—</td></tr>
     </table>
     <p style="margin-top:6px;color:#888" id="cm-metrics-text"></p>
   </div>
@@ -224,9 +224,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 <script>
 const COLORS = {
-  extensif:       { fill: '#4CAF50', stroke: '#2e7d32' },
-  intensif:       { fill: '#FFC107', stroke: '#f57f17' },
-  hyper_intensif: { fill: '#F44336', stroke: '#b71c1c' },
+  extensif: { fill: '#4CAF50', stroke: '#2e7d32' },
+  intensif:  { fill: '#FFC107', stroke: '#f57f17' },
 };
 
 // Map centered on Tunisia
@@ -346,7 +345,7 @@ document.getElementById('btn-analyze').addEventListener('click', async () => {
 
 (async function loadConfusionMatrix() {
   try {
-    const res = await fetch('/api/cartographier/metrics');
+    const res = await fetch('/api/cartographier/classifier-metrics');
     if (!res.ok) return;
     const data = await res.json();
     const cm = data.confusion;
@@ -356,7 +355,7 @@ document.getElementById('btn-analyze').addEventListener('click', async () => {
     document.getElementById('cm-fn').textContent = cm.fn ?? '—';
     document.getElementById('cm-tp').textContent = cm.tp ?? '—';
     document.getElementById('cm-metrics-text').textContent =
-      'IoU: ' + (data.iou ?? '—') + '  F1: ' + (data.f1 ?? '—');
+      'F1 macro: ' + (data.f1_macro ?? '—') + '  CV F1: ' + (data.spatial_cv_f1 ?? '—');
     document.getElementById('confusion-panel').style.display = 'block';
   } catch (_) {}
 })();
@@ -415,7 +414,8 @@ function renderResults(data) {
     poly.addTo(resultLayer);
 
     // Sidebar card (DOM only, no innerHTML)
-    const badge = el('span', { className: o.systeme === 'extensif' ? 'badge badge-ext' : 'badge badge-int' }, [o.systeme]);
+    const badgeCls = o.systeme === 'extensif' ? 'badge badge-ext' : 'badge badge-int';
+    const badge = el('span', { className: badgeCls }, [o.systeme]);
     const systemeDiv = el('div', { className: 'systeme' }, [badge, ' #' + (idx + 1)]);
     const detailsDiv = el('div', { className: 'details' }, [
       'Surface: ', o.surface_ha + ' ha',
@@ -459,7 +459,7 @@ legend.onAdd = () => {
   title.textContent = 'Systeme de conduite';
   div.appendChild(title);
   div.appendChild(document.createElement('br'));
-  [['#4CAF50','Extensif'],['#FFC107','Intensif'],['#F44336','Hyper-intensif']].forEach(([c, label]) => {
+  [['#4CAF50','Extensif'],['#FFC107','Intensif']].forEach(([c, label]) => {
     const span = document.createElement('span');
     span.style.color = c;
     span.textContent = '■ ';

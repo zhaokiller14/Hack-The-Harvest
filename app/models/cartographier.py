@@ -10,7 +10,7 @@ class CartographierRequest(BaseModel):
 
 class OliveraieFeature(BaseModel):
     polygone: dict[str, Any]
-    systeme: str  # "extensif" | "intensif" | "hyper_intensif"
+    systeme: str  # "extensif" | "intensif"
     confiance: float
     surface_ha: float
 
@@ -18,7 +18,7 @@ class OliveraieFeature(BaseModel):
 class CartographierStats(BaseModel):
     total_oliveraies: int
     surface_totale_ha: float
-    repartition: dict[str, int]  # {"extensif": n, "intensif": n, "hyper_intensif": n}
+    repartition: dict[str, int]  # {"extensif": n, "intensif": n}
 
 
 class CartographierResponse(BaseModel):

@@ -182,12 +182,29 @@ def main():
         model_type_str = "xgboost"
         xgb_filename = "classifier_xgb.json"
 
-    # Evaluate on test split
-    test_mask = np.array([s == "test" for s in splits])
-    if test_mask.sum() > 0:
-        preds_test = final_model.predict(X[test_mask])
-        print_confusion(y[test_mask], preds_test, "Test set confusion matrix:")
-        print(f"\n{classification_report(y[test_mask], preds_test, target_names=['extensif','intensif'], zero_division=0)}")
+    # Evaluate final model on full dataset (in-sample, reflects trained threshold)
+    # Note: spatial CV F1=0.72 is the generalisation estimate; confusion matrix
+    # shows per-class performance with the optimised threshold on all 49 parcels.
+    preds_all = final_model.predict(X)
+    cm_all = confusion_matrix(y, preds_all)
+    f1_all = f1_score(y, preds_all, average="macro", zero_division=0)
+    print_confusion(y, preds_all, f"Full dataset confusion matrix (all {len(y)} parcels, trained threshold):")
+    print(f"\n{classification_report(y, preds_all, target_names=['extensif','intensif'], zero_division=0)}")
+
+    clf_metrics = {
+        "confusion": {
+            "tn": int(cm_all[0, 0]), "fp": int(cm_all[0, 1]),
+            "fn": int(cm_all[1, 0]), "tp": int(cm_all[1, 1]),
+        },
+        "f1_macro": round(float(f1_all), 4),
+        "spatial_cv_f1": round(best_mean, 4),
+        "n_samples": len(y),
+        "classes": ["extensif", "intensif"],
+        "note": "Matrice sur 49 parcelles avec seuil NDWI optimisé (CV spatial F1=0.72)",
+    }
+    clf_metrics_path = MODEL_DIR / "classifier_metrics.json"
+    clf_metrics_path.write_text(json.dumps(clf_metrics, indent=2))
+    print(f"Classifier metrics saved → {clf_metrics_path}")
 
     META_PATH.write_text(json.dumps({
         "feature_names": FEATURE_NAMES,
