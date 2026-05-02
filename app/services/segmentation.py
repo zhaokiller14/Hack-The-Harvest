@@ -6,7 +6,6 @@ from typing import Any
 
 import numpy as np
 import torch
-import torch.nn as nn
 
 _MODEL_DIR = Path(__file__).parent.parent.parent / "models"
 _DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -28,11 +27,6 @@ def load_unet_model() -> bool:
             encoder_name="resnet34", encoder_weights=None,
             in_channels=_N_CHANNELS, classes=1,
         ).to(_DEVICE)
-        old_conv = model.encoder.conv1
-        new_conv = nn.Conv2d(_N_CHANNELS, old_conv.out_channels,
-                             kernel_size=old_conv.kernel_size, stride=old_conv.stride,
-                             padding=old_conv.padding, bias=False)
-        model.encoder.conv1 = new_conv
         model.load_state_dict(torch.load(weights_path, map_location=_DEVICE))
         model.train(False)  # inference mode
         _model = model
@@ -65,12 +59,17 @@ def _download_tile_sync(polygon_geojson: dict[str, Any]) -> "np.ndarray | None":
             max(lngs) + pad, max(lats) + pad,
         ])
 
+        def mask_scl(img):
+            scl = img.select("SCL")
+            clear = scl.eq(4).Or(scl.eq(5)).Or(scl.eq(6)).Or(scl.eq(7)).Or(scl.eq(11))
+            return img.updateMask(clear).select(["B2", "B3", "B4", "B8", "B11"])
+
         s2 = (
             ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
             .filterBounds(bbox)
             .filterDate(cfg.sentinel_date_start, cfg.sentinel_date_end)
             .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cfg.sentinel_cloud_pct))
-            .select(["B2", "B3", "B4", "B8", "B11"])
+            .map(mask_scl)
             .median()
         )
 

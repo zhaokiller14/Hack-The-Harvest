@@ -13,11 +13,17 @@ def _extract_sync(polygon_geojson: dict[str, Any], area_ha: float) -> dict[str, 
     ee.Initialize(project=cfg.gee_project)
     aoi = ee.Geometry.Polygon(polygon_geojson["coordinates"])
 
+    def mask_scl(img):
+        scl = img.select("SCL")
+        clear = scl.eq(4).Or(scl.eq(5)).Or(scl.eq(6)).Or(scl.eq(7)).Or(scl.eq(11))
+        return img.updateMask(clear)
+
     s2 = (
         ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
         .filterBounds(aoi)
         .filterDate(cfg.sentinel_date_start, cfg.sentinel_date_end)
         .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", cfg.sentinel_cloud_pct))
+        .map(mask_scl)
         .median()
     )
 

@@ -21,3 +21,18 @@ Thumbs.db
 # --- Jupyter ---
 .ipynb_checkpoints/
 *.ipynb
+
+# --- ML model weights (large binaries, regenerate with train_unet.py) ---
+models/*.pth
+models/*.pkl
+models/*.bin
+
+# --- Satellite tiles (GEE downloads, regenerate with download_tiles.py) ---
+data/tiles/
+
+# --- Generated outputs ---
+docs/unet_confusion_matrix.png
+models/unet_history.json
+
+# --- Logs ---
+*.log

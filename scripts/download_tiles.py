@@ -25,42 +25,45 @@ NEGATIVE_BBOXES = [
 ]
 
 PATCH_SIZE_PX = 256
-DATE_START = "2024-05-01"
-DATE_END = "2024-06-30"
-CLOUD_PCT = 40
+# May-June: maximum olive/soil spectral contrast (jury spec)
+DATE_START = "2025-05-01"
+DATE_END = "2025-06-30"
+CLOUD_PCT = 40  # pre-filter; SCL mask applied per-pixel after
 
 
-def download_patch(parcel_id: str, coords: list, label: int, split: str) -> bool:
+def _scl_masked_composite(bbox: "ee.Geometry") -> "ee.Image":
+    """
+    Build a cloud-free median composite using the SCL band for pixel-level masking.
+    SCL clear classes: 4=vegetation, 5=bare soil, 6=water, 7=unclassified,
+                       11=snow (kept to avoid data gaps in sparse scenes).
+    Cloud/shadow classes masked out: 1,2,3,8,9,10.
+    """
     import ee
-    import rasterio
-    from rasterio.transform import from_bounds
-    from rasterio.features import rasterize
-    from shapely.geometry import Polygon, mapping
-    import cv2
 
-    ee.Initialize()
+    def mask_scl(img):
+        scl = img.select("SCL")
+        clear = scl.eq(4).Or(scl.eq(5)).Or(scl.eq(6)).Or(scl.eq(7)).Or(scl.eq(11))
+        return img.updateMask(clear).select(["B2", "B3", "B4", "B8", "B11"])
 
-    shp = Polygon([[c[0], c[1]] for c in coords])
-    minx, miny, maxx, maxy = shp.bounds
-
-    pad_deg = 0.025
-    minx -= pad_deg; miny -= pad_deg; maxx += pad_deg; maxy += pad_deg
-
-    bbox = ee.Geometry.Rectangle([minx, miny, maxx, maxy])
-    s2 = (
+    return (
         ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
         .filterBounds(bbox)
         .filterDate(DATE_START, DATE_END)
         .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", CLOUD_PCT))
-        .select(["B2", "B3", "B4", "B8", "B11"])
+        .map(mask_scl)
         .median()
     )
+
+
+def _fetch_and_resize(s2: "ee.Image", bbox: "ee.Geometry") -> "np.ndarray | None":
+    """Download sampleRectangle and resize to PATCH_SIZE_PX. Returns [5,H,W] float32 or None."""
+    import ee
+    import cv2
 
     try:
         data = s2.sampleRectangle(region=bbox, defaultValue=0).getInfo()
     except Exception as e:
-        print(f"  GEE error for {parcel_id}: {e}")
-        return False
+        return None
 
     bands = ["B2", "B3", "B4", "B8", "B11"]
     arrays = [np.array(data["properties"][b], dtype=np.float32) / 10000.0 for b in bands]
@@ -71,6 +74,30 @@ def download_patch(parcel_id: str, coords: list, label: int, split: str) -> bool
             cv2.resize(img[i], (PATCH_SIZE_PX, PATCH_SIZE_PX), interpolation=cv2.INTER_LINEAR)
             for i in range(5)
         ], axis=0)
+    return img
+
+
+def download_patch(parcel_id: str, coords: list, label: int, split: str) -> bool:
+    import ee
+    import rasterio
+    from rasterio.transform import from_bounds
+    from rasterio.features import rasterize
+    from shapely.geometry import Polygon, mapping
+
+    ee.Initialize(project="devflow-443322")
+
+    shp = Polygon([[c[0], c[1]] for c in coords])
+    minx, miny, maxx, maxy = shp.bounds
+
+    pad_deg = 0.025
+    minx -= pad_deg; miny -= pad_deg; maxx += pad_deg; maxy += pad_deg
+
+    bbox = ee.Geometry.Rectangle([minx, miny, maxx, maxy])
+    s2 = _scl_masked_composite(bbox)
+    img = _fetch_and_resize(s2, bbox)
+    if img is None:
+        print(f"  GEE error for {parcel_id}")
+        return False
 
     transform = from_bounds(minx, miny, maxx, maxy, PATCH_SIZE_PX, PATCH_SIZE_PX)
     img_path = IMAGES_DIR / f"{parcel_id}_{split}.tif"
@@ -100,33 +127,15 @@ def download_negative(idx: int, bbox_tuple: tuple) -> bool:
     import ee
     import rasterio
     from rasterio.transform import from_bounds
-    import cv2
 
-    ee.Initialize()
+    ee.Initialize(project="devflow-443322")
     minx, miny, maxx, maxy = bbox_tuple
     bbox = ee.Geometry.Rectangle([minx, miny, maxx, maxy])
-    s2 = (
-        ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
-        .filterBounds(bbox)
-        .filterDate(DATE_START, DATE_END)
-        .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", CLOUD_PCT))
-        .select(["B2", "B3", "B4", "B8", "B11"])
-        .median()
-    )
-    try:
-        data = s2.sampleRectangle(region=bbox, defaultValue=0).getInfo()
-    except Exception as e:
-        print(f"  GEE error for negative_{idx}: {e}")
+    s2 = _scl_masked_composite(bbox)
+    img = _fetch_and_resize(s2, bbox)
+    if img is None:
+        print(f"  GEE error for negative_{idx}")
         return False
-
-    bands = ["B2", "B3", "B4", "B8", "B11"]
-    arrays = [np.array(data["properties"][b], dtype=np.float32) / 10000.0 for b in bands]
-    img = np.clip(np.stack(arrays, axis=0), 0, 1)
-    if img.shape[1] != PATCH_SIZE_PX or img.shape[2] != PATCH_SIZE_PX:
-        img = np.stack([
-            cv2.resize(img[i], (PATCH_SIZE_PX, PATCH_SIZE_PX), interpolation=cv2.INTER_LINEAR)
-            for i in range(5)
-        ], axis=0)
 
     transform = from_bounds(minx, miny, maxx, maxy, PATCH_SIZE_PX, PATCH_SIZE_PX)
     img_path = IMAGES_DIR / f"negative_{idx}_train.tif"

@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn as nn
 import rasterio
 import segmentation_models_pytorch as smp
 
@@ -26,11 +25,6 @@ def build_model():
         encoder_name="resnet34", encoder_weights=None,
         in_channels=N_CHANNELS, classes=1,
     ).to(DEVICE)
-    old_conv = model.encoder.conv1
-    new_conv = nn.Conv2d(N_CHANNELS, old_conv.out_channels,
-                         kernel_size=old_conv.kernel_size, stride=old_conv.stride,
-                         padding=old_conv.padding, bias=False)
-    model.encoder.conv1 = new_conv
     model.load_state_dict(torch.load(MODEL_DIR / "unet_best.pth", map_location=DEVICE))
     model.train(False)  # inference mode
     return model

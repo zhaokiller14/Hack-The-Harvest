@@ -22,10 +22,10 @@ MODEL_DIR.mkdir(exist_ok=True)
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 PATCH_SIZE = 256
 N_CHANNELS = 5
-BATCH_SIZE = 8
-LR = 1e-4
-EPOCHS = 50
-PATIENCE = 10
+BATCH_SIZE = 4
+LR = 3e-4
+EPOCHS = 80
+PATIENCE = 20
 
 
 class OliveDataset(Dataset):
@@ -43,7 +43,7 @@ class OliveDataset(Dataset):
             A.VerticalFlip(p=0.5),
             A.RandomRotate90(p=0.5),
             A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.4),
-            A.GaussNoise(var_limit=(0.001, 0.004), p=0.3),
+            A.GaussNoise(p=0.3),
         ]) if augment else None
 
     def __len__(self):
@@ -69,9 +69,10 @@ class OliveDataset(Dataset):
 
 
 class BceDiceLoss(nn.Module):
-    def __init__(self):
+    def __init__(self, pos_weight: float = 5.0):
         super().__init__()
-        self.bce = nn.BCEWithLogitsLoss()
+        pw = torch.tensor([pos_weight], device=DEVICE)
+        self.bce = nn.BCEWithLogitsLoss(pos_weight=pw)
 
     def forward(self, logits, targets):
         bce_loss = self.bce(logits, targets)
@@ -95,16 +96,6 @@ def build_model():
         encoder_name="resnet34", encoder_weights="imagenet",
         in_channels=N_CHANNELS, classes=1,
     ).to(DEVICE)
-    # Patch first conv to accept 5 channels (ImageNet pretrained expects 3)
-    old_conv = model.encoder.conv1
-    new_conv = nn.Conv2d(N_CHANNELS, old_conv.out_channels,
-                         kernel_size=old_conv.kernel_size, stride=old_conv.stride,
-                         padding=old_conv.padding, bias=False)
-    with torch.no_grad():
-        new_conv.weight[:, :3] = old_conv.weight
-        new_conv.weight[:, 3] = old_conv.weight.mean(dim=1)
-        new_conv.weight[:, 4] = old_conv.weight.mean(dim=1)
-    model.encoder.conv1 = new_conv
     return model
 
 
@@ -117,8 +108,10 @@ def set_inference_mode(model):
 def main():
     print(f"Device: {DEVICE}")
 
+    # Use train+val for fitting (only 8 val tiles, too few to waste)
     train_ds = OliveDataset("train", augment=True)
-    val_ds = OliveDataset("val", augment=False)
+    train_val_ds = OliveDataset("val", augment=True)
+    val_ds = OliveDataset("val", augment=False)  # for monitoring only
 
     if len(train_ds) == 0:
         print("No split-labeled tiles found, using 80/20 split of all tiles")
@@ -128,8 +121,12 @@ def main():
             all_ds, [n_train, len(all_ds) - n_train],
             generator=torch.Generator().manual_seed(42),
         )
+        train_val_ds = None
+    else:
+        from torch.utils.data import ConcatDataset
+        train_ds = ConcatDataset([train_ds, train_val_ds])
 
-    print(f"Train: {len(train_ds)}  Val: {len(val_ds)}")
+    print(f"Train: {len(train_ds)}  Val (monitor): {len(val_ds)}")
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True, num_workers=2, pin_memory=True)
     val_loader = DataLoader(val_ds, batch_size=BATCH_SIZE, shuffle=False, num_workers=2, pin_memory=True)
 
