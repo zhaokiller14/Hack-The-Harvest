@@ -22,6 +22,5 @@ Thumbs.db
 .ipynb_checkpoints/
 *.ipynb
 
-/data
 /venv
 .claude
